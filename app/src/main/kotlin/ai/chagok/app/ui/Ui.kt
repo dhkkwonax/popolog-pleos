@@ -68,19 +68,29 @@ val ai.chagok.app.model.ExpenseCategory.ic: Ic
         ai.chagok.app.model.ExpenseCategory.OTHER -> Ic.DOT
     }
 
+/** 아이콘 한 변(px). 큰 화면에서는 글자와 함께 키운다 */
+fun Context.iconPx(sizeDp: Int): Int = (dp(sizeDp) * if (uiScale > 1f) LARGE_DISPLAY_ICON_SCALE else 1f).toInt()
+
 fun Context.iconDrawable(ic: Ic, color: Int, sizeDp: Int): Drawable =
     getDrawable(ic.res)!!.mutate().apply {
         setTint(color)
-        setBounds(0, 0, dp(sizeDp), dp(sizeDp))
+        setBounds(0, 0, iconPx(sizeDp), iconPx(sizeDp))
     }
 
-/** 회색 외곽선 아이콘 (기본 20dp) */
-fun Context.icon(ic: Ic, color: Int = C.SUB, sizeDp: Int = 20): android.widget.ImageView =
-    android.widget.ImageView(this).apply {
+/**
+ * 회색 외곽선 아이콘 (기본 20dp). add(…, WRAP, WRAP) 로 붙여도 크기가 벡터 원본(24dp)으로 돌아가지 않도록
+ * 직접 잰다. 큰 화면에서는 [iconPx] 만큼 키운다.
+ */
+fun Context.icon(ic: Ic, color: Int = C.SUB, sizeDp: Int = 20): android.widget.ImageView {
+    val px = iconPx(sizeDp)
+    return object : android.widget.ImageView(this) {
+        override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) = setMeasuredDimension(px, px)
+    }.apply {
         setImageDrawable(iconDrawable(ic, color, sizeDp))
-        layoutParams = LinearLayout.LayoutParams(dp(sizeDp), dp(sizeDp))
+        scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
     }
+}
 
 /**
  * 큰 차량 디스플레이(최소 변 1200dp 이상, 예: 17″ 16:9 2560×1440)는 화면이 멀고 넓어서
@@ -90,11 +100,11 @@ fun Context.icon(ic: Ic, color: Int = C.SUB, sizeDp: Int = 20): android.widget.I
 const val LARGE_DISPLAY_MIN_DP = 1200
 const val LARGE_DISPLAY_SCALE = 1.25f
 
-/** 큰 화면에서 보조 글자가 이보다 작아지지 않게 한다 (운전석 시야 거리 기준) */
-const val LARGE_DISPLAY_MIN_SP = 16f
+/** 큰 화면의 최소 터치 높이. 운전 중 한 번에 누르도록 차량 가이드(76dp)보다 넉넉히 */
+const val LARGE_DISPLAY_MIN_TOUCH_DP = 96
 
-/** 큰 화면의 최소 터치 높이 (차량 터치 가이드 76dp) */
-const val LARGE_DISPLAY_MIN_TOUCH_DP = 76
+/** 큰 화면에서 아이콘은 글자 단계표만큼 함께 키운다 */
+const val LARGE_DISPLAY_ICON_SCALE = 1.5f
 
 val Context.uiScale: Float
     get() = if (resources.configuration.smallestScreenWidthDp >= LARGE_DISPLAY_MIN_DP) LARGE_DISPLAY_SCALE else 1f
@@ -102,8 +112,26 @@ val Context.uiScale: Float
 fun Context.dp(v: Int): Int = (v * resources.displayMetrics.density * uiScale).toInt()
 fun Context.dpf(v: Float): Float = v * resources.displayMetrics.density * uiScale
 
-/** 글자 크기(sp). 큰 화면에서는 배율을 곱하고 최소 16sp 를 보장한다 */
-fun Context.sp(v: Float): Float = if (uiScale > 1f) maxOf(v * uiScale, LARGE_DISPLAY_MIN_SP) else v
+/**
+ * 글자 크기(sp). 코드에는 기본 화면 기준 값을 쓰고, 큰 화면(17″)에서는 운전석에서 한눈에 읽히도록
+ * 역할별 단계표로 올린다: 보조 20 · 라벨 22 · 본문 26 · 행 제목·버튼 28 · 카드 제목 30 · 배너 32 · 제목·숫자 34.
+ * 그보다 큰 값(핵심 숫자)은 1.5배.
+ */
+fun Context.sp(v: Float): Float = if (uiScale <= 1f) v else largeSp(v)
+
+fun largeSp(v: Float): Float = when {
+    v <= 14f -> 20f // 보조: 날짜·출처 줄, 각주
+    v <= 15f -> 22f // 라벨: 칸 제목, 상태 줄
+    v <= 17f -> 26f // 본문·목록
+    v <= 18f -> 28f // 행 제목·버튼
+    v <= 20f -> 30f // 카드 제목
+    v <= 22f -> 32f // 배너 제목
+    v <= 24f -> 34f // 페이지 제목·형제 숫자
+    else -> v * LARGE_TYPE_SCALE
+}
+
+/** 핵심 숫자 배율 (큰 화면). 38sp → 57sp */
+const val LARGE_TYPE_SCALE = 1.5f
 
 /**
  * 좁은 창: 차량 화면을 세로 1칸으로 나눈 분할 창(예: 1920×1080 에서 628dp) 등.
@@ -202,6 +230,10 @@ fun Context.text(
 ): TextView = TextView(this).apply {
     text = s
     if (tabular) fontFeatureSettings = "tnum"
+    // 한국어를 어절 단위로 줄바꿈한다 (글자가 커져도 "기록/됩니다" 처럼 단어 중간에서 꺾이지 않게)
+    if (android.os.Build.VERSION.SDK_INT >= 33) {
+        lineBreakWordStyle = android.graphics.text.LineBreakConfig.LINE_BREAK_WORD_STYLE_PHRASE
+    }
     setTextSize(TypedValue.COMPLEX_UNIT_SP, sp(sp))
     setTextColor(color)
     if (bold) typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)

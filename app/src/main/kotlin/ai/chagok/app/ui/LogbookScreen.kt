@@ -50,8 +50,8 @@ class LogbookScreen(private val a: MainActivity) {
 
     private fun stat(label: String, value: String, sub: String, color: Int = C.TEXT): View = a.vbox {
         add(a.text(label, 15f, C.SUB, lines = 1))
-        add(a.text(value, 21f, color, bold = true, lines = 1, tabular = true), top = 8)
-        add(a.text(sub, 14f, C.DIM, lines = 1), top = 6)
+        add(a.text(value, 24f, color, bold = true, lines = 1, tabular = true), top = 8)
+        add(a.text(sub, 14f, C.DIM), top = 6)
     }
 
     private fun row(t: Trip, fmt: SimpleDateFormat, hm: SimpleDateFormat): View = a.hbox {
@@ -65,10 +65,10 @@ class LogbookScreen(private val a: MainActivity) {
         }
         add(a.vbox {
             if (narrow) add(a.text("${fmt.format(t.startTime)} ${hm.format(t.startTime)}–${hm.format(t.endTime)}", 14f, C.DIM))
-            add(a.text("${t.fromName.ifEmpty { "-" }} → ${t.toName.ifEmpty { "미등록 장소" }}", 17f, lines = 1), top = if (narrow) 4 else 0)
+            add(a.text("${t.fromName.ifEmpty { "-" }} → ${t.toName.ifEmpty { "미등록 장소" }}", 17f), top = if (narrow) 4 else 0)
             // 운행기록부의 성명 칸에 들어가는 운전자를 함께 보여 준다
             val who = if (t.driver.isNotEmpty()) " · ${t.driver}" else ""
-            add(a.text("${AppController.fmt1(t.startOdoKm)} → ${AppController.fmt1(t.endOdoKm)} km" + (if (t.classifiedBy != ClassifiedBy.NONE) " · ${t.classifiedBy.label} 분류" else "") + who, 14f, C.DIM, lines = 1), top = 4)
+            add(a.text("${AppController.fmt1(t.startOdoKm)} → ${AppController.fmt1(t.endOdoKm)} km" + (if (t.classifiedBy != ClassifiedBy.NONE) " · ${t.classifiedBy.label} 분류" else "") + who, 14f, C.DIM), top = 4)
         }, 0, WRAP, 1f)
         add(a.text(AppController.fmtKm(t.distanceKm), 18f, bold = true, tabular = true).apply { gravity = Gravity.END }, a.dp(if (narrow) 90 else 120), WRAP, end = 14)
         add(

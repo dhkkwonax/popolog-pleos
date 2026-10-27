@@ -57,7 +57,7 @@ class LedgerScreen(private val a: MainActivity) {
         add(a.pair(
             a.card {
                 add(a.text("이번 달 차량비", 15f, C.SUB))
-                add(a.text(AppController.won(total), 28f, bold = true, tabular = true), top = 10)
+                add(a.text(AppController.won(total), 38f, bold = true, tabular = true), top = 10)
                 val auto = done.count { it.source != ExpenseSource.MANUAL }
                 add(a.text("${done.size}건 중 ${auto}건 자동·음성 기록", 15f, C.DIM), top = 10)
                 val km = c.trips.filter { range.contains(it.startTime) }.sumOf { it.distanceKm }
@@ -101,7 +101,7 @@ class LedgerScreen(private val a: MainActivity) {
     private fun row(e: Expense, fmt: SimpleDateFormat): View = a.hbox {
         add(a.icon(e.category.ic, C.SUB, 22), WRAP, WRAP, end = 18)
         add(a.vbox {
-            add(a.text(e.category.label + if (e.memo.isNotEmpty()) " · ${e.memo}" else "", 17f, lines = 1))
+            add(a.text(e.category.label + if (e.memo.isNotEmpty()) " · ${e.memo}" else "", 17f))
             val extra = listOfNotNull(
                 fmt.format(e.time),
                 e.quantity?.let { AppController.fmt1(it) + if (e.category == ExpenseCategory.CHARGE) "kWh" else "L" },
@@ -109,7 +109,7 @@ class LedgerScreen(private val a: MainActivity) {
                 // 입력 방식은 따로 알약을 달지 않고 설명 줄에 둔다 (행마다 상태 표시는 하나)
                 e.source.label,
             ).joinToString(" · ")
-            add(a.text(extra, 14f, C.DIM, lines = 1), top = 4)
+            add(a.text(extra, 14f, C.DIM), top = 4)
         }, 0, WRAP, 1f)
         if (e.pendingAmount) {
             add(a.button("금액 입력", BtnStyle.WARN) { a.askAmountByKeypad(e) }, WRAP, WRAP)

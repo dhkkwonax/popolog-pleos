@@ -48,7 +48,7 @@ class PlacesScreen(private val a: MainActivity) {
         add(a.vbox {
             add(a.text(p.name, 18f, bold = true))
             val visits = c.trips.count { it.toName == p.name }
-            add(a.text("${p.address.ifEmpty { coord(p) }} · 반경 ${p.radiusM}m · 도착 ${visits}회", 14f, C.DIM, lines = 1), top = 4)
+            add(a.text("${p.address.ifEmpty { coord(p) }} · 반경 ${p.radiusM}m · 도착 ${visits}회", 14f, C.DIM), top = 4)
         }, 0, WRAP, 1f)
         add(a.button("삭제", BtnStyle.GHOST) {
             a.dialog("'${p.name}'을(를) 삭제할까요?", a.text("  기존 운행 기록은 그대로 남습니다.", 16f, C.SUB), "삭제") { c.deletePlace(p.id) }

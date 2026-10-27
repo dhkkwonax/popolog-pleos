@@ -53,8 +53,8 @@ class TaxScreen(private val a: MainActivity) {
 
     private fun ratioCard(s: TaxSummary): View = a.card {
         add(a.text("업무사용비율", 15f, C.SUB))
-        // 화면의 답 숫자. 앱 숫자는 36 이하로 두고, 색은 아래 막대(데이터)에만
-        add(a.text(String.format(Locale.US, "%.1f%%", s.businessRatio * 100), 28f, bold = true, tabular = true), top = 8)
+        // 화면의 답 숫자. 운전 중 한눈에 읽히게 크게 (큰 화면 48sp), 색은 아래 막대(데이터)에만
+        add(a.text(String.format(Locale.US, "%.1f%%", s.businessRatio * 100), 38f, bold = true, tabular = true), top = 8)
         add(a.bar(s.businessRatio, C.ACCENT, 14), top = 14)
         add(a.text("업무용 사용거리 ÷ 총 주행거리", 14f, C.DIM), top = 10)
         add(a.divider(), top = 16)

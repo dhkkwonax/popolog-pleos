@@ -43,7 +43,7 @@ class HomeScreen(private val a: MainActivity) {
         }
         return a.hbox {
             add(a.icon(ic, color, 20), WRAP, WRAP, end = 10)
-            add(a.text(line, 18f, if (todo.isNotEmpty()) C.TEXT else C.SUB, lines = 1), 0, WRAP, 1f)
+            add(a.text(line, 18f, if (todo.isNotEmpty()) C.TEXT else C.SUB), 0, WRAP, 1f)
         }
     }
 
@@ -58,8 +58,8 @@ class HomeScreen(private val a: MainActivity) {
         add(a.hbox {
             add(a.icon(Ic.PERSON, C.SUB, 28), WRAP, WRAP, end = 16)
             add(a.vbox {
-                add(a.text(text, 22f, bold = true, lines = 1))
-                add(a.text(how, 16f, C.SUB, lines = 1), top = 6)
+                add(a.text(text, 22f, bold = true))
+                add(a.text(how, 16f, C.SUB), top = 6)
             }, 0, WRAP, 1f)
             // 좁은 창에서는 버튼이 설명을 단어 중간에서 꺾으므로 아래 줄로 내린다
             if (!a.isNarrow) add(change, WRAP, WRAP)
@@ -122,25 +122,49 @@ class HomeScreen(private val a: MainActivity) {
         val todo = year.unclassifiedTrips + year.pendingExpenses
         val perKm = if (monthKm > 0) monthCost / monthKm else 0.0
 
-        // 답 숫자(이번 달 차량비)는 나머지보다 1.3배 이상 크게
-        val lead = kpi("${m + 1}월 차량비", AppController.won(monthCost), "km당 ${Math.round(perKm)}원", LEAD_SP) { a.select(MainActivity.Tab.LEDGER) }
-        val rest = listOf(
-            kpi("${m + 1}월 주행", AppController.fmtKm(monthKm), "계기판 누적거리 기준") { a.select(MainActivity.Tab.LOGBOOK) },
-            kpi("${y}년 업무사용비율", String.format(Locale.US, "%.1f%%", year.businessRatio * 100), "출퇴근 포함") { a.select(MainActivity.Tab.TAX) },
-            kpi(
+        // 답 숫자(이번 달 차량비)는 나머지보다 확실히 크게 (큰 화면 48 · 30sp)
+        val lead = kpi("${m + 1}월 차량비", AppController.won(monthCost), "km당 ${Math.round(perKm)}원 · 주행 ${AppController.fmtKm(monthKm)}", LEAD_SP) { a.select(MainActivity.Tab.LEDGER) }
+        data class Fig(val label: String, val value: String, val sub: String, val color: Int, val tab: MainActivity.Tab)
+        val figs = listOf(
+            Fig("${m + 1}월 주행", AppController.fmtKm(monthKm), "계기판 누적거리 기준", C.TEXT, MainActivity.Tab.LOGBOOK),
+            Fig("${y}년 업무사용비율", String.format(Locale.US, "%.1f%%", year.businessRatio * 100), "출퇴근 포함", C.TEXT, MainActivity.Tab.TAX),
+            Fig(
                 "확인할 항목", "${todo}건", if (todo == 0) "모두 정리됨" else "미분류 ${year.unclassifiedTrips} · 금액 ${year.pendingExpenses}",
-                color = if (todo > 0) C.AMBER else C.TEXT,
-            ) { a.select(MainActivity.Tab.LOGBOOK) },
+                if (todo > 0) C.AMBER else C.TEXT, MainActivity.Tab.LOGBOOK,
+            ),
         )
-        // 좁은 창: 답 숫자를 맨 위 전체 폭에, 나머지 셋을 한 줄에 / 넓은 창: 네 칸 한 줄
-        return if (a.isNarrow) a.strip(rest, 3, lead) else a.strip(listOf(lead) + rest, 4)
+        if (a.isNarrow) {
+            // 좁은 창: 답 숫자를 맨 위 전체 폭에, 나머지는 '라벨 … 값' 한 줄씩 (세 칸으로 나누면 라벨이 잘린다)
+            val list = a.vbox {
+                figs.forEachIndexed { i, f ->
+                    if (i > 0) add(a.divider(), top = 14)
+                    add(a.hbox {
+                        add(a.text(f.label, 15f, C.SUB, lines = 1), 0, WRAP, 1f, end = 12)
+                        add(a.text(f.value, 20f, f.color, bold = true, lines = 1, tabular = true), WRAP, WRAP)
+                        setOnClickListener { a.select(f.tab) }
+                    }, top = if (i > 0) 14 else 0)
+                }
+            }
+            return a.strip(listOf(list), 1, lead)
+        }
+        // 넓은 창: 답 숫자 칸을 넓게(1.6), 나머지 셋을 같은 폭으로 옆에
+        return a.hbox(Gravity.TOP) {
+            background = a.rounded(C.SURFACE, 20)
+            val pad = a.dp(22)
+            fun cell(v: View) = a.vbox { setPadding(pad, pad, pad, pad); addView(v) }
+            add(cell(lead), 0, WRAP, 1.6f)
+            for (f in figs) {
+                add(a.vline(), WRAP, MATCH)
+                add(cell(kpi(f.label, f.value, f.sub, color = f.color) { a.select(f.tab) }), 0, WRAP, 1f)
+            }
+        }
     }
 
     private fun kpi(label: String, value: String, sub: String, valueSp: Float = SIBLING_SP, color: Int = C.TEXT, onClick: () -> Unit): View =
         a.vbox {
             add(a.text(label, 15f, C.SUB, lines = 1))
             add(a.text(value, valueSp, color, bold = true, lines = 1, tabular = true), top = 8)
-            add(a.text(sub, 14f, C.DIM, lines = 1), top = 6)
+            add(a.text(sub, 14f, C.DIM), top = 6)
             background = a.pressable(android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
             setOnClickListener { onClick() }
         }
@@ -175,8 +199,8 @@ class HomeScreen(private val a: MainActivity) {
             add(a.hbox {
                 add(a.icon(r.icon, C.SUB, 20), WRAP, WRAP, end = 16)
                 add(a.vbox {
-                    add(a.text(r.title, 17f, lines = 1))
-                    add(a.text("${fmt.format(r.time)} · ${r.sub}", 14f, C.DIM, lines = 1), top = 4)
+                    add(a.text(r.title, 17f))
+                    add(a.text("${fmt.format(r.time)} · ${r.sub}", 14f, C.DIM), top = 4)
                 }, 0, WRAP, 1f)
                 add(a.text(r.right, 18f, r.color, bold = true, tabular = true), WRAP, WRAP)
             }, top = 12)
@@ -184,8 +208,9 @@ class HomeScreen(private val a: MainActivity) {
     }
 
     companion object {
-        private const val LEAD_SP = 28f
-        private const val SIBLING_SP = 21f
+        // 큰 화면에서 핵심 48sp · 형제 30sp (1.6배). 기본 화면은 38 · 24
+        private const val LEAD_SP = 38f
+        private const val SIBLING_SP = 24f
         private const val RECENT_ROWS = 5
 
         /** 운행 목적 표시: 정상은 잉크, 손봐야 할 미분류만 색 */
