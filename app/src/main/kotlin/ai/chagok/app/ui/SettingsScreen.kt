@@ -34,7 +34,7 @@ class SettingsScreen(private val a: MainActivity) {
                 if (i > 0) add(a.divider(), top = 12)
                 add(a.hbox {
                     add(a.vbox {
-                        add(a.text(d.name + if (now?.driver?.id == d.id) "  · 지금 운전 중" else "", 18f, if (now?.driver?.id == d.id) C.ACCENT else C.TEXT, bold = true))
+                        add(a.text(d.name + if (now?.driver?.id == d.id) "  · 지금 운전 중" else "", 18f, bold = true))
                         add(a.text("${d.department} · 시트 위치 ${d.seatPosition?.toString() ?: "미등록"}", 15f, C.SUB), top = 4)
                     }, 0, WRAP, 1f)
                     add(a.button("지금 시트 위치로 등록", BtnStyle.GHOST) {

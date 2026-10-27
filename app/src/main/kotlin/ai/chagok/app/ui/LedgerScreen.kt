@@ -57,11 +57,19 @@ class LedgerScreen(private val a: MainActivity) {
         add(a.pair(
             a.card {
                 add(a.text("이번 달 차량비", 15f, C.SUB))
-                add(a.text(AppController.won(total), 34f, bold = true), top = 10)
+                add(a.text(AppController.won(total), 28f, bold = true, tabular = true), top = 10)
                 val auto = done.count { it.source != ExpenseSource.MANUAL }
                 add(a.text("${done.size}건 중 ${auto}건 자동·음성 기록", 15f, C.DIM), top = 10)
                 val km = c.trips.filter { range.contains(it.startTime) }.sumOf { it.distanceKm }
                 if (km > 0) add(a.text("km당 ${Math.round(total / km)}원 · 주행 ${AppController.fmtKm(km)}", 15f, C.DIM), top = 6)
+                // 옆 카드와 아래 끝을 맞추고, 남는 높이 아래에 다음 할 일을 붙인다
+                addFiller()
+                add(a.text("세무 리포트에서 비용 인정액 보기", 16f, C.SUB).apply {
+                    setCompoundDrawablesRelative(null, null, a.iconDrawable(Ic.CHEVRON_RIGHT, C.SUB, 18), null)
+                    compoundDrawablePadding = a.dp(4)
+                    setPadding(0, a.dp(12), 0, 0)
+                    setOnClickListener { a.select(MainActivity.Tab.TAX) }
+                }, WRAP, WRAP)
             },
             a.card {
                 add(a.text("항목별", 15f, C.SUB))
@@ -70,9 +78,10 @@ class LedgerScreen(private val a: MainActivity) {
                 if (byCat.isEmpty()) add(a.text("기록 없음", 16f, C.DIM), top = 10)
                 for ((cat, sum) in byCat) {
                     add(a.hbox {
-                        add(a.text("${cat.emoji} ${cat.label}", 16f), a.dp(130), WRAP)
+                        add(a.icon(cat.ic, C.SUB, 18), WRAP, WRAP, end = 10)
+                        add(a.text(cat.label, 16f), a.dp(100), WRAP)
                         add(a.bar(sum.toDouble() / total.coerceAtLeast(1), C.ACCENT), 0, WRAP, 1f, end = 12)
-                        add(a.text(AppController.won(sum), 16f, bold = true).apply { gravity = Gravity.END }, a.dp(130), WRAP)
+                        add(a.text(AppController.won(sum), 16f, bold = true, tabular = true).apply { gravity = Gravity.END }, a.dp(130), WRAP)
                     }, top = 10)
                 }
             },
@@ -90,26 +99,22 @@ class LedgerScreen(private val a: MainActivity) {
     }
 
     private fun row(e: Expense, fmt: SimpleDateFormat): View = a.hbox {
-        add(a.text(e.category.emoji, 24f), a.dp(44), WRAP)
+        add(a.icon(e.category.ic, C.SUB, 22), WRAP, WRAP, end = 18)
         add(a.vbox {
             add(a.text(e.category.label + if (e.memo.isNotEmpty()) " · ${e.memo}" else "", 17f, lines = 1))
             val extra = listOfNotNull(
                 fmt.format(e.time),
                 e.quantity?.let { AppController.fmt1(it) + if (e.category == ExpenseCategory.CHARGE) "kWh" else "L" },
                 e.odoKm?.let { "계기판 " + AppController.fmtKm(it) },
+                // 입력 방식은 따로 알약을 달지 않고 설명 줄에 둔다 (행마다 상태 표시는 하나)
+                e.source.label,
             ).joinToString(" · ")
             add(a.text(extra, 14f, C.DIM, lines = 1), top = 4)
         }, 0, WRAP, 1f)
-        val srcColor = when (e.source) {
-            ExpenseSource.AUTO -> C.ACCENT to C.ACCENT_BG
-            ExpenseSource.VOICE -> C.BLUE to C.BLUE_BG
-            ExpenseSource.MANUAL -> C.SUB to C.SURFACE2
-        }
-        add(a.chip(e.source.label, srcColor.first, srcColor.second, 13f), WRAP, WRAP, end = 14)
         if (e.pendingAmount) {
             add(a.button("금액 입력", BtnStyle.WARN) { a.askAmountByKeypad(e) }, WRAP, WRAP)
         } else {
-            add(a.text(AppController.won(e.amountWon), 19f, bold = true).apply { gravity = Gravity.END }, a.dp(140), WRAP)
+            add(a.text(AppController.won(e.amountWon), 19f, bold = true, tabular = true).apply { gravity = Gravity.END }, a.dp(140), WRAP)
         }
         setOnLongClickListener {
             a.dialog("이 기록을 삭제할까요?", a.text("  ${e.category.label} ${AppController.won(e.amountWon)}", 17f, C.SUB), "삭제") {
@@ -128,11 +133,13 @@ class LedgerScreen(private val a: MainActivity) {
             for (i in 0 until chips.childCount) {
                 val v = chips.getChildAt(i)
                 val sel = v.tag == category
-                v.background = a.rounded(if (sel) C.ACCENT_BG else C.SURFACE2, 999, if (sel) C.ACCENT else null)
+                v.background = a.rounded(if (sel) C.NAV_ACTIVE else C.SURFACE2, 999, if (sel) C.SUB else null)
             }
         }
         for (cat in ExpenseCategory.values()) {
-            chips.add(a.chip("${cat.emoji} ${cat.label}", C.TEXT, C.SURFACE2, 16f).apply {
+            chips.add(a.chip(cat.label, C.TEXT, C.SURFACE2, 16f).apply {
+                setCompoundDrawablesRelative(a.iconDrawable(cat.ic, C.SUB, 18), null, null, null)
+                compoundDrawablePadding = a.dp(6)
                 tag = cat
                 minHeight = a.touchHeight(52)
                 setOnClickListener { category = cat; paint() }
@@ -144,7 +151,7 @@ class LedgerScreen(private val a: MainActivity) {
             add(HorizontalScrollView(a).apply { addView(chips); isHorizontalScrollBarEnabled = false })
             add(a.hbox {
                 add(amount, 0, WRAP, 1f, end = 10)
-                add(a.button("🎤") {
+                add(a.button("", icon = Ic.MIC) {
                     a.listen("금액을 말씀해 주세요", "예: 삼만 오천 원") { said ->
                         KoreanAmountParser.parse(said)?.let { amount.setText(it.toString()) }
                     }

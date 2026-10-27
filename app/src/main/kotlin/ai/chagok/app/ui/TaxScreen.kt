@@ -53,19 +53,30 @@ class TaxScreen(private val a: MainActivity) {
 
     private fun ratioCard(s: TaxSummary): View = a.card {
         add(a.text("업무사용비율", 15f, C.SUB))
-        add(a.text(String.format(Locale.US, "%.1f%%", s.businessRatio * 100), 48f, C.ACCENT, bold = true), top = 8)
+        // 화면의 답 숫자. 앱 숫자는 36 이하로 두고, 색은 아래 막대(데이터)에만
+        add(a.text(String.format(Locale.US, "%.1f%%", s.businessRatio * 100), 28f, bold = true, tabular = true), top = 8)
         add(a.bar(s.businessRatio, C.ACCENT, 14), top = 14)
         add(a.text("업무용 사용거리 ÷ 총 주행거리", 14f, C.DIM), top = 10)
         add(a.divider(), top = 16)
         fun line(k: String, v: String, color: Int = C.TEXT) = a.hbox {
             add(a.text(k, 16f, C.SUB), 0, WRAP, 1f)
-            add(a.text(v, 17f, color, bold = true), WRAP, WRAP)
+            add(a.text(v, 17f, color, bold = true, tabular = true), WRAP, WRAP)
         }
         add(line("총 주행거리", AppController.fmtKm(s.totalKm)), top = 14)
-        add(line("· 일반 업무용", AppController.fmtKm(s.businessKm), C.ACCENT), top = 10)
-        add(line("· 출·퇴근용", AppController.fmtKm(s.commuteKm), C.BLUE), top = 10)
-        add(line("· 비업무", AppController.fmtKm(s.totalKm - s.businessUseKm - unclassifiedKm(s)), C.SUB), top = 10)
+        add(line("· 일반 업무용", AppController.fmtKm(s.businessKm)), top = 10)
+        add(line("· 출·퇴근용", AppController.fmtKm(s.commuteKm)), top = 10)
+        add(line("· 비업무", AppController.fmtKm(s.totalKm - s.businessUseKm - unclassifiedKm(s))), top = 10)
         if (s.unclassifiedTrips > 0) add(line("· 미분류 (비업무로 계산)", "${s.unclassifiedTrips}건", C.AMBER), top = 10)
+        addFiller()
+        add(link("운행일지에서 운행별로 보기") { a.select(MainActivity.Tab.LOGBOOK) }, WRAP, WRAP)
+    }
+
+    /** 늘어난 카드 아래 끝에 붙이는 글자 링크 */
+    private fun link(label: String, onClick: () -> Unit): View = a.text(label, 16f, C.SUB).apply {
+        setCompoundDrawablesRelative(null, null, a.iconDrawable(Ic.CHEVRON_RIGHT, C.SUB, 18), null)
+        compoundDrawablePadding = a.dp(4)
+        setPadding(0, a.dp(16), 0, 0)
+        setOnClickListener { onClick() }
     }
 
     private fun unclassifiedKm(s: TaxSummary): Double =
@@ -75,20 +86,21 @@ class TaxScreen(private val a: MainActivity) {
 
     private fun deductCard(s: TaxSummary, cal: Calendar): View = a.card {
         add(a.text("비용 인정액 비교 (누적)", 15f, C.SUB))
-        add(a.text(AppController.won(s.totalExpense), 34f, bold = true), top = 8)
+        add(a.text(AppController.won(s.totalExpense), 24f, bold = true, tabular = true), top = 8)
         add(a.text("차량 관련비용 합계", 14f, C.DIM), top = 6)
         add(a.divider(), top = 16)
 
         fun compare(label: String, value: Long, sub: String, color: Int) = a.vbox {
             add(a.hbox {
                 add(a.text(label, 16f, C.SUB), 0, WRAP, 1f)
-                add(a.text(AppController.won(value), 20f, color, bold = true), WRAP, WRAP)
+                add(a.text(AppController.won(value), 20f, color, bold = true, tabular = true), WRAP, WRAP)
             })
             add(a.bar(value.toDouble() / s.totalExpense.coerceAtLeast(1), color, 10), top = 8)
             add(a.text(sub, 13f, C.DIM), top = 6)
         }
+        // 막대는 데이터라 운행기록부 쪽만 강조색, 비교 대상은 회색. 금액 글자는 둘 다 잉크
         add(compare("운행기록부 작성 시", s.deductibleWithLogbook, "관련비용 × 업무사용비율", C.ACCENT), top = 14)
-        add(compare("기록부 없을 때", s.deductibleWithoutLogbook, "연 1,500만원 한도", C.SUB), top = 14)
+        add(compare("기록부 없을 때", s.deductibleWithoutLogbook, "연 1,500만원 한도", C.DIM), top = 14)
 
         // 연말까지 같은 패턴이 이어진다고 보고 연간 환산
         val dayOfYear = cal.get(Calendar.DAY_OF_YEAR)
@@ -106,7 +118,7 @@ class TaxScreen(private val a: MainActivity) {
         add(
             a.text(
                 if (gain > 0) "운행기록부로 ${AppController.won(gain)} 더 비용 인정" else "1,500만원 이하라 기록부 없이도 전액 인정 범위 · 세무조사 대비 근거로 보관",
-                16f, if (gain > 0) C.ACCENT else C.SUB, bold = gain > 0,
+                16f, if (gain > 0) C.TEXT else C.SUB, bold = gain > 0,
             ),
             top = 6,
         )
@@ -118,22 +130,31 @@ class TaxScreen(private val a: MainActivity) {
         if (order.isEmpty()) add(a.text("기록 없음", 16f, C.DIM), top = 10)
         for ((cat, v) in order) {
             add(a.hbox {
-                add(a.text("${cat.emoji} ${cat.label}", 16f), 0, WRAP, 1f)
-                add(a.text(AppController.won(v), 17f, bold = true), WRAP, WRAP)
+                add(a.icon(cat.ic, C.SUB, 18), WRAP, WRAP, end = 10)
+                add(a.text(cat.label, 16f), 0, WRAP, 1f)
+                add(a.text(AppController.won(v), 17f, bold = true, tabular = true), WRAP, WRAP)
             }, top = 12)
         }
+        // 옆 체크리스트와 아래 끝을 맞추고, 남는 높이 아래에 합계를 붙인다
+        addFiller()
+        add(a.divider(), top = 16)
+        add(a.hbox {
+            add(a.text("합계", 16f, C.SUB), 0, WRAP, 1f)
+            add(a.text(AppController.won(s.totalExpense), 18f, bold = true, tabular = true), WRAP, WRAP)
+        }, top = 12)
     }
 
     private fun checklist(s: TaxSummary): View = a.card {
         add(a.text("신고 준비 체크", 15f, C.SUB))
         val insured = s.byCategory.containsKey(ExpenseCategory.INSURANCE)
         fun item(ok: Boolean?, title: String, sub: String) = a.hbox(Gravity.TOP) {
-            val (mark, color) = when (ok) {
-                true -> "✓" to C.ACCENT
-                false -> "!" to C.AMBER
-                null -> "i" to C.BLUE
+            // 둥근 색 바탕 없이 외곽선 아이콘만. 손봐야 할 것만 색
+            val (ic, color) = when (ok) {
+                true -> Ic.CHECK to C.SUB
+                false -> Ic.ALERT to C.AMBER
+                null -> Ic.INFO to C.SUB
             }
-            add(a.chip(mark, color, C.SURFACE2, 15f), a.dp(36), a.dp(36), end = 14)
+            add(a.icon(ic, color, 22), WRAP, WRAP, end = 14)
             add(a.vbox {
                 add(a.text(title, 17f, bold = true))
                 add(a.text(sub, 14f, C.DIM), top = 4)

@@ -13,12 +13,12 @@ class PlacesScreen(private val a: MainActivity) {
     private val c = a.controller
 
     fun render(): View = a.vbox {
-        add(a.card(C.ACCENT_BG, padDp = 20) {
-            add(a.text("자동 분류 규칙", 18f, C.ACCENT, bold = true))
+        add(a.card(C.SURFACE, padDp = 20) {
+            add(a.text("자동 분류 규칙", 18f, bold = true))
             add(
                 a.text(
                     "도착 위치가 거래처 반경 안 → 일반업무 · 거래처에서 회사로 복귀 → 일반업무 · 집 ↔ 회사 → 출퇴근 · 그 밖의 곳 → 도착 후 음성으로 한 번 묻기",
-                    16f, C.TEXT,
+                    16f, C.SUB,
                 ),
                 top = 8,
             )
@@ -37,12 +37,14 @@ class PlacesScreen(private val a: MainActivity) {
     }
 
     private fun row(p: Place): View = a.hbox {
-        val (fg, bg) = when (p.kind) {
-            PlaceKind.HOME -> C.BLUE to C.BLUE_BG
-            PlaceKind.OFFICE -> C.VIOLET to C.VIOLET_BG
-            PlaceKind.CLIENT -> C.ACCENT to C.ACCENT_BG
+        // 종류는 색 대신 아이콘과 글자로 구분한다
+        val ic = when (p.kind) {
+            PlaceKind.HOME -> Ic.HOME
+            PlaceKind.OFFICE -> Ic.LEDGER
+            PlaceKind.CLIENT -> Ic.PIN
         }
-        add(a.chip(p.kind.label, fg, bg, 14f), a.dp(84), WRAP, end = 16)
+        add(a.icon(ic, C.SUB, 22), WRAP, WRAP, end = 14)
+        add(a.text(p.kind.label, 15f, C.SUB), a.dp(64), WRAP, end = 8)
         add(a.vbox {
             add(a.text(p.name, 18f, bold = true))
             val visits = c.trips.count { it.toName == p.name }
@@ -65,7 +67,7 @@ class PlacesScreen(private val a: MainActivity) {
             for (i in 0 until kinds.childCount) {
                 val v = kinds.getChildAt(i)
                 val sel = v.tag == kind
-                v.background = a.rounded(if (sel) C.ACCENT_BG else C.SURFACE2, 999, if (sel) C.ACCENT else null)
+                v.background = a.rounded(if (sel) C.NAV_ACTIVE else C.SURFACE2, 999, if (sel) C.SUB else null)
             }
         }
         for (k in PlaceKind.values()) {

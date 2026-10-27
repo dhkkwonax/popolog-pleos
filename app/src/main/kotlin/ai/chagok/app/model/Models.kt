@@ -55,17 +55,17 @@ data class Trip(
     val distanceKm: Double get() = (endOdoKm - startOdoKm).coerceAtLeast(0.0)
 }
 
-enum class ExpenseCategory(val label: String, val emoji: String) {
-    FUEL("주유", "⛽"),
-    CHARGE("충전", "🔌"),
-    TOLL("통행료", "🛣"),
-    PARKING("주차", "🅿"),
-    MAINTENANCE("정비", "🔧"),
-    INSURANCE("보험", "🛡"),
-    TAX("자동차세", "🧾"),
-    LEASE("렌트·리스", "📄"),
-    WASH("세차", "🫧"),
-    OTHER("기타", "•"),
+enum class ExpenseCategory(val label: String) {
+    FUEL("주유"),
+    CHARGE("충전"),
+    TOLL("통행료"),
+    PARKING("주차"),
+    MAINTENANCE("정비"),
+    INSURANCE("보험"),
+    TAX("자동차세"),
+    LEASE("렌트·리스"),
+    WASH("세차"),
+    OTHER("기타"),
 }
 
 enum class ExpenseSource(val label: String) {

@@ -11,6 +11,9 @@ import ai.chagok.app.ui.BtnStyle
 import ai.chagok.app.ui.C
 import ai.chagok.app.ui.DemoOverlay
 import ai.chagok.app.ui.DragFrame
+import ai.chagok.app.ui.Ic
+import ai.chagok.app.ui.icon
+import ai.chagok.app.ui.iconDrawable
 import ai.chagok.app.ui.HomeScreen
 import ai.chagok.app.ui.LedgerScreen
 import ai.chagok.app.ui.LogbookScreen
@@ -31,7 +34,7 @@ import ai.chagok.app.ui.sp
 import ai.chagok.app.ui.text
 import ai.chagok.app.ui.vbox
 import android.app.Activity
-import android.app.AlertDialog
+import android.app.Dialog
 import android.content.ActivityNotFoundException
 import android.content.ContentValues
 import android.content.Intent
@@ -52,6 +55,7 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.TextView
 import android.widget.Toast
 import java.io.File
 
@@ -59,13 +63,13 @@ class MainActivity : Activity() {
     lateinit var controller: AppController
         private set
 
-    enum class Tab(val label: String, val icon: String) {
-        HOME("홈", "⌂"),
-        LEDGER("장부", "₩"),
-        LOGBOOK("운행일지", "⇄"),
-        TAX("세무 리포트", "%"),
-        PLACES("장소", "⌖"),
-        SETTINGS("설정", "⚙"),
+    enum class Tab(val label: String, val icon: Ic) {
+        HOME("홈", Ic.HOME),
+        LEDGER("장부", Ic.LEDGER),
+        LOGBOOK("운행일지", Ic.SWAP),
+        TAX("세무 리포트", Ic.PERCENT),
+        PLACES("장소", Ic.PIN),
+        SETTINGS("설정", Ic.SLIDERS),
     }
 
     var tab = Tab.HOME
@@ -298,11 +302,13 @@ class MainActivity : Activity() {
                 rail.add(railRow(t, selected), MATCH, WRAP, top = 6)
                 continue
             }
+            // 1칸 아래 탭: 선택은 강조색이 아닌 회색 알약과 흰 글자
             val item = vbox(Gravity.CENTER) {
-                setPadding(dp(6), dp(if (wide) 14 else 8), dp(6), dp(if (wide) 14 else 8))
-                background = pressable(rounded(if (selected) C.ACCENT_BG else Color.TRANSPARENT, 16))
-                add(text(t.icon, if (wide) 26f else 20f, if (selected) C.ACCENT else C.SUB, bold = true).apply { gravity = Gravity.CENTER }, MATCH, WRAP)
-                add(text(t.label, if (wide) 15f else 12f, if (selected) C.ACCENT else C.SUB, bold = selected).apply { gravity = Gravity.CENTER }, MATCH, WRAP, top = 4)
+                setPadding(dp(6), dp(8), dp(6), dp(8))
+                background = pressable(rounded(if (selected) C.NAV_ACTIVE else Color.TRANSPARENT, 16))
+                add(icon(t.icon, if (selected) C.TEXT else C.SUB, 22), WRAP, WRAP)
+                add(text(t.label, 12f, if (selected) C.TEXT else C.SUB, bold = selected).apply { gravity = Gravity.CENTER }, MATCH, WRAP, top = 4)
+                contentDescription = t.label
                 setOnClickListener { select(t) }
             }
             rail.add(item, 0, WRAP, 1f)
@@ -312,10 +318,10 @@ class MainActivity : Activity() {
     /** 2칸(가로) 창의 왼쪽 메뉴 한 줄: 아이콘 오른쪽에 메뉴이름을 본문 제목 크기로. 선택된 줄은 전체 배경으로 강조 */
     private fun railRow(t: Tab, selected: Boolean): View = hbox(Gravity.CENTER_VERTICAL) {
         setPadding(dp(16), dp(16), dp(24), dp(16))
-        background = pressable(rounded(if (selected) C.ACCENT_BG else Color.TRANSPARENT, 16))
-        val color = if (selected) C.ACCENT else C.SUB
-        add(text(t.icon, 26f, color, bold = true).apply { gravity = Gravity.CENTER }, dp(36), WRAP, end = 14)
-        add(text(t.label, 20f, if (selected) C.ACCENT else C.TEXT, bold = selected, lines = 1), WRAP, WRAP)
+        // 선택된 줄은 강조색이 아닌 중립 회색 알약 (줄 전체)
+        background = pressable(rounded(if (selected) C.NAV_ACTIVE else Color.TRANSPARENT, 16))
+        add(icon(t.icon, if (selected) C.TEXT else C.SUB, 26), WRAP, WRAP, end = 16)
+        add(text(t.label, 20f, if (selected) C.TEXT else C.SUB, bold = selected, lines = 1), WRAP, WRAP)
         contentDescription = t.label
         setOnClickListener { select(t) }
     }
@@ -358,43 +364,43 @@ class MainActivity : Activity() {
     private fun updateStatus() {
         val c = controller
         statusBar.removeAllViews()
+        // 제목 24sp. 차량 상태는 칩 대신 회색 글자 한 줄로 차종 옆(좁은 창은 아래 줄)에 둔다
+        val ev = c.gateway.info.powertrain == Powertrain.EV
+        val state = listOf(
+            if (c.isDriving) "주행 중 " + AppController.fmtKm(c.liveTripKm) else "P 주차",
+            "계기판 " + AppController.fmtKm(c.odoKm),
+            (if (ev) "배터리 " else "연료 ") + Math.round(c.energyPercent) + "%",
+        ).joinToString(" · ")
         val title = vbox {
-            add(text(tab.label, 28f, bold = true), WRAP, WRAP)
-            add(text(c.gateway.info.title, 15f, C.SUB), WRAP, WRAP, top = 4)
+            add(text(tab.label, 24f, bold = true), WRAP, WRAP)
+            if (isNarrow) {
+                add(text(c.gateway.info.title, 15f, C.SUB, lines = 1), WRAP, WRAP, top = 4)
+                add(text(state, 15f, if (c.isDriving) C.TEXT else C.SUB, lines = 1, tabular = true), WRAP, WRAP, top = 2)
+            } else {
+                add(text(c.gateway.info.title + " · " + state, 15f, C.SUB, lines = 1, tabular = true), WRAP, WRAP, top = 4)
+            }
         }
         statusBar.add(title, 0, WRAP, 1f)
-        val ev = c.gateway.info.powertrain == Powertrain.EV
-        val chips = hbox(Gravity.END or Gravity.CENTER_VERTICAL) {
-            // 지금 운전석에 앉은 사람. 눌러서 바꿀 수 있다
-            c.driver?.let { d ->
-                add(chip("👤 ${d.driver.name} · ${d.method.label}", C.BLUE, C.BLUE_BG, 15f).apply {
-                    contentDescription = "운전자 바꾸기"
-                    setOnClickListener { pickDriver() }
-                }, WRAP, WRAP, end = 8)
+        // 칩은 하나만: 지금 운전석에 앉은 사람. 눌러서 바꿀 수 있다
+        c.driver?.let { d ->
+            val who = chip("${d.driver.name} · ${d.method.label}", C.TEXT, C.SURFACE2, 15f).apply {
+                setCompoundDrawablesRelative(iconDrawable(Ic.PERSON, C.SUB, 18), null, null, null)
+                compoundDrawablePadding = dp(6)
+                minHeight = dp(44)
+                contentDescription = "운전자 바꾸기"
+                setOnClickListener { pickDriver() }
             }
-            if (c.isDriving) {
-                add(chip("● 주행 중 " + AppController.fmtKm(c.liveTripKm), C.ACCENT, C.ACCENT_BG, 15f), WRAP, WRAP, end = 8)
-            } else {
-                add(chip("P 주차", C.SUB, C.SURFACE2, 15f), WRAP, WRAP, end = 8)
-            }
-            add(chip("계기판 " + AppController.fmtKm(c.odoKm), C.TEXT, C.SURFACE2, 15f), WRAP, WRAP, end = 8)
-            val low = c.energyPercent < 20
-            add(
-                chip((if (ev) "배터리 " else "연료 ") + Math.round(c.energyPercent) + "%", if (low) C.AMBER else C.TEXT, if (low) C.AMBER_BG else C.SURFACE2, 15f),
-                WRAP, WRAP, end = 8,
-            )
+            statusBar.add(who, WRAP, WRAP)
         }
-        // 좁은 창에서는 칩이 차종·번호판을 밀어 줄바꿈시키므로 제목 아래 줄로 내린다
-        if (isNarrow) title.add(chips, WRAP, WRAP, top = 10) else statusBar.add(chips, WRAP, WRAP)
     }
 
     /** 운전자 고르기. 시동 때 자동으로 정해지지만 틀렸으면 여기서 바꾼다 */
     fun pickDriver() {
         val list = vbox().apply { setPadding(dp(24), 0, dp(24), dp(8)) }
-        lateinit var dlg: AlertDialog
+        lateinit var dlg: Dialog
         for (d in controller.drivers) {
             val current = controller.driver?.driver?.id == d.id
-            list.add(button("${d.name} · ${d.department}", if (current) BtnStyle.PRIMARY else BtnStyle.SECONDARY) {
+            list.add(choice("${d.name} · ${d.department}" + if (current) " · 지금 운전 중" else "", current) {
                 controller.chooseDriver(d.id)
                 dlg.dismiss()
             }, top = 10)
@@ -470,7 +476,7 @@ class MainActivity : Activity() {
             }
             add(input, top = 12)
         }
-        dialog("${e.category.emoji} ${e.category.label} 금액 입력", body, "저장") {
+        dialog("${e.category.label} 금액 입력", body, "저장") {
             val v = input.text.toString().toLongOrNull()
             if (v != null && v > 0) controller.setExpenseAmount(e.id, v, ExpenseSource.MANUAL)
         }
@@ -492,12 +498,12 @@ class MainActivity : Activity() {
 
     fun choosePurpose(t: Trip) {
         val options = TripPurpose.values().filter { it != TripPurpose.UNCLASSIFIED }
-        var dlg: AlertDialog? = null
+        var dlg: Dialog? = null
         val body = vbox {
             setPadding(dp(24), dp(8), dp(24), dp(8))
             add(text("${t.fromName.ifEmpty { "출발지" }} → ${t.toName.ifEmpty { "미등록 장소" }} · ${AppController.fmtKm(t.distanceKm)}", 16f, C.SUB))
             for (p in options) {
-                add(button(p.label, if (p == t.purpose) BtnStyle.PRIMARY else BtnStyle.SECONDARY) {
+                add(choice(p.label, p == t.purpose) {
                     controller.classifyTrip(t.id, p, ClassifiedBy.MANUAL)
                     dlg?.dismiss()
                 }, top = 10)
@@ -519,14 +525,41 @@ class MainActivity : Activity() {
         setPadding(dp(16), dp(14), dp(16), dp(14))
     }
 
-    fun dialog(title: String, body: View, positive: String?, onOk: () -> Unit): AlertDialog {
-        val b = AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-            .setTitle(title)
-            .setView(body)
-            .setNegativeButton("닫기", null)
-        if (positive != null) b.setPositiveButton(positive) { _, _ -> onOk() }
-        return b.show()
+    /**
+     * 앱과 같은 어두운 표면의 대화상자. 시스템 밝은 대화상자는 차량 화면에서 따로 놀았다.
+     * 채운 버튼은 [positive] 하나뿐이고, 닫기는 글자 버튼이다.
+     */
+    fun dialog(title: String, body: View, positive: String?, onOk: () -> Unit): Dialog {
+        val d = Dialog(this)
+        d.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
+        val panel = vbox {
+            background = rounded(C.SURFACE, 20, C.LINE)
+            setPadding(0, dp(24), 0, dp(16))
+            add(text(title, 22f, bold = true).apply { setPadding(dp(24), 0, dp(24), dp(8)) })
+            add(body)
+            add(hbox(Gravity.END or Gravity.CENTER_VERTICAL) {
+                setPadding(dp(24), dp(16), dp(24), 0)
+                add(button("닫기", BtnStyle.GHOST) { d.dismiss() }, WRAP, WRAP)
+                if (positive != null) {
+                    add(button(positive, BtnStyle.PRIMARY) { d.dismiss(); onOk() }, WRAP, WRAP)
+                        .also { (it.layoutParams as LinearLayout.LayoutParams).marginStart = dp(10) }
+                }
+            })
+        }
+        d.setContentView(panel)
+        d.window?.apply {
+            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            setLayout(minOf(dp(640), (resources.displayMetrics.widthPixels * 0.9).toInt()), android.view.WindowManager.LayoutParams.WRAP_CONTENT)
+        }
+        d.show()
+        return d
     }
+
+    /** 대화상자의 선택지: 모두 같은 모양, 지금 값만 ✓ 와 회색 알약 테두리 */
+    fun choice(label: String, current: Boolean, onClick: () -> Unit): TextView =
+        button(label, BtnStyle.SECONDARY, icon = if (current) Ic.CHECK else null) { onClick() }.apply {
+            if (current) background = pressable(rounded(C.NAV_ACTIVE, 16, C.SUB))
+        }
 
     fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
 

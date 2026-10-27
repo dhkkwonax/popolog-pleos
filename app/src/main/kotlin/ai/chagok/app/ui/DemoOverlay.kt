@@ -40,7 +40,7 @@ class DemoOverlay(private val a: MainActivity) {
     }
 
     /** 접힌 상태: 작은 반투명 원형 버튼 */
-    private fun handle(onToggle: () -> Unit): View = label("시연", 12f, C.VIOLET, bold = true).apply {
+    private fun handle(onToggle: () -> Unit): View = label("시연", 12f, C.SUB, bold = true).apply {
         gravity = Gravity.CENTER
         minimumWidth = px(44)
         minimumHeight = px(44)
@@ -56,29 +56,30 @@ class DemoOverlay(private val a: MainActivity) {
         setPadding(px(6), px(6), px(6), px(6))
         alpha = 0.9f
         // 본문 add() 는 큰 화면 배율이 걸린 여백을 쓰므로, 여기서는 배율 없는 간격으로 붙인다
-        fun put(v: View, w: Int, gap: Int) = addView(v, android.widget.LinearLayout.LayoutParams(w, px(36)).apply { marginStart = px(gap) })
+        // 시연자도 손가락으로 누르므로 터치 영역은 44dp
+        fun put(v: View, w: Int, gap: Int) = addView(v, android.widget.LinearLayout.LayoutParams(w, px(TOUCH)).apply { marginStart = px(gap) })
 
         val busy = sim.busy || !sim.parked
         val ev = sim.info.powertrain == Powertrain.EV
         put(destinations(sim, busy, onToggle), WRAP, 0)
-        put(icon(if (ev) "🔌" else "⛽", if (ev) "충전하기 (→80%)" else "주유하기 (가득)", !busy) {
+        put(tool(if (ev) Ic.PLUG else Ic.FUEL, if (ev) "충전하기 (→80%)" else "주유하기 (가득)", !busy) {
             sim.refill(if (ev) 80.0 else 100.0) { c.flushEnergy() }
-        }, px(40), 6)
+        }, px(TOUCH), 6)
         // 차종을 바꾸면 주유 대신 충전 감지(배터리 SoC 상승)를 보여 준다
-        put(icon("⇄", if (ev) "가솔린 차로 전환" else "전기차로 전환", !busy) {
+        put(tool(Ic.SWAP, if (ev) "가솔린 차로 전환" else "전기차로 전환", !busy) {
             c.switchPowertrain(if (ev) Powertrain.ICE else Powertrain.EV)
-        }, px(40), 4)
-        put(icon("↺", "시연 데이터 초기화", !busy) {
+        }, px(TOUCH), 4)
+        put(tool(Ic.RESET, "시연 데이터 초기화", !busy) {
             a.dialog("시연 데이터를 초기화할까요?", a.text("  지금까지의 기록을 지우고 6월 출고 이후 예시 기록을 다시 만듭니다.", 16f, C.SUB), "초기화") {
                 c.resetDemo()
             }
-        }, px(40), 4)
-        put(icon("▾", "시연 컨트롤 접기", true) { onToggle() }, px(32), 2)
+        }, px(TOUCH), 4)
+        put(tool(Ic.CHEVRON_DOWN, "시연 컨트롤 접기", true) { onToggle() }, px(TOUCH), 2)
     }
 
     /**
      * 도착지 드롭다운. 고르면 그곳으로 운행이 시작되고, 주행 화면이 보이도록 오버레이는 접힌다.
-     * 아래쪽 "👤 OOO 탑승"은 다른 사람이 타서 운전석을 자기 위치로 맞추는 것을 흉내 낸다 (운전자 판별 시연).
+     * 아래쪽 "OOO 탑승"은 다른 사람이 타서 운전석을 자기 위치로 맞추는 것을 흉내 낸다 (운전자 판별 시연).
      */
     private fun destinations(sim: SimulatedVehicle, busy: Boolean, onToggle: () -> Unit): View {
         data class Dest(val label: String, val run: () -> Unit)
@@ -89,7 +90,7 @@ class DemoOverlay(private val a: MainActivity) {
             c.places.firstOrNull { it.kind == PlaceKind.HOME }?.let { add(go("→ 집", it.lat, it.lng)) }
             add(go("→ ${DemoSeed.MALL_NAME}", DemoSeed.MALL_LAT, DemoSeed.MALL_LNG))
             c.drivers.filter { it.id != c.driver?.driver?.id && it.seatPosition != null }.forEach { d ->
-                add(Dest("👤 ${d.name} 탑승") { sim.seatDriver(d.seatPosition!!) })
+                add(Dest("${d.name} 탑승") { sim.seatDriver(d.seatPosition!!) })
             }
         }
         // 0번은 안내 문구 자리. 고른 뒤에는 다시 0번으로 돌린다
@@ -99,7 +100,7 @@ class DemoOverlay(private val a: MainActivity) {
                 label(getItem(position).orEmpty(), 14f, if (busy) C.DIM else C.TEXT, bold = true).apply {
                     gravity = Gravity.CENTER_VERTICAL
                     setPadding(px(12), 0, px(12), 0)
-                    minHeight = px(36)
+                    minHeight = px(TOUCH)
                 }
 
             override fun getDropDownView(position: Int, convertView: View?, parent: ViewGroup): View =
@@ -127,9 +128,10 @@ class DemoOverlay(private val a: MainActivity) {
         }
     }
 
-    private fun icon(glyph: String, desc: String, enabled: Boolean, onClick: () -> Unit): TextView =
-        label(glyph, 17f, C.TEXT, bold = true).apply {
-            gravity = Gravity.CENTER
+    private fun tool(ic: Ic, desc: String, enabled: Boolean, onClick: () -> Unit): View =
+        android.widget.ImageView(a).apply {
+            setImageDrawable(a.iconDrawable(ic, C.TEXT, 20))
+            scaleType = android.widget.ImageView.ScaleType.CENTER
             background = a.pressable(a.rounded(C.SURFACE2, 10))
             contentDescription = desc
             isEnabled = enabled
@@ -148,9 +150,12 @@ class DemoOverlay(private val a: MainActivity) {
     }
 
     companion object {
-        /** 보라빛 어두운 유리 느낌, 약 40% 불투명 */
-        private val PANEL_BG = Color.argb(104, 0x2A, 0x23, 0x42)
-        private val PANEL_LINE = Color.argb(140, 0xC4, 0xB5, 0xFD)
+        /** 중립 회색, 약 40% 불투명 (보라는 쓰지 않는다) */
+        private val PANEL_BG = Color.argb(104, 0x1F, 0x27, 0x31)
+        private val PANEL_LINE = Color.argb(140, 0xB4, 0xBE, 0xCB)
+
+        /** 터치 영역 (dp) */
+        private const val TOUCH = 44
     }
 }
 

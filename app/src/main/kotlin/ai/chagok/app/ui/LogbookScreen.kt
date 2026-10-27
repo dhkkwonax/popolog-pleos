@@ -22,15 +22,16 @@ class LogbookScreen(private val a: MainActivity) {
         val total = list.sumOf { it.distanceKm }
         fun km(p: TripPurpose) = list.filter { it.purpose == p }.sumOf { it.distanceKm }
         val un = list.count { it.purpose == TripPurpose.UNCLASSIFIED }
-        val stats = listOf(
-            stat("총 주행", AppController.fmtKm(total), "${list.size}회 · 계기판 기준", C.TEXT),
-            stat("일반업무", AppController.fmtKm(km(TripPurpose.BUSINESS)), "거래처 도착 자동 분류", C.ACCENT),
-            stat("출퇴근", AppController.fmtKm(km(TripPurpose.COMMUTE)), "집 ↔ 회사", C.BLUE),
-            stat("비업무", AppController.fmtKm(km(TripPurpose.PERSONAL)), "개인 용무", C.SUB),
-            stat("미분류", "${un}건", if (un > 0) "눌러서 목적 지정" else "없음", if (un > 0) C.AMBER else C.DIM),
+        // 값은 모두 잉크. 색은 손봐야 할 미분류에만
+        val totalCell = stat("총 주행", AppController.fmtKm(total), "${list.size}회 · 계기판 기준")
+        val parts = listOf(
+            stat("일반업무", AppController.fmtKm(km(TripPurpose.BUSINESS)), "거래처 도착 자동 분류"),
+            stat("출퇴근", AppController.fmtKm(km(TripPurpose.COMMUTE)), "집 ↔ 회사"),
+            stat("비업무", AppController.fmtKm(km(TripPurpose.PERSONAL)), "개인 용무"),
+            stat("미분류", "${un}건", if (un > 0) "눌러서 목적 지정" else "없음", if (un > 0) C.AMBER else C.TEXT),
         )
-        // 좁은 창에서 다섯 칸은 "1,4…" 로 잘리므로 세 칸씩 놓는다
-        add(a.grid(if (a.isNarrow) 3 else 5, stats), top = 16)
+        // 좁은 창: 총 주행을 전체 폭에, 나머지 넷을 2×2 (빈 칸 없이) / 넓은 창: 다섯 칸 한 줄
+        add(if (a.isNarrow) a.strip(parts, 2, totalCell) else a.strip(listOf(totalCell) + parts, 5), top = 16)
 
         add(a.card {
             add(a.hbox {
@@ -47,10 +48,10 @@ class LogbookScreen(private val a: MainActivity) {
         }, top = 16)
     }
 
-    private fun stat(label: String, value: String, sub: String, color: Int): View = a.card(padDp = 18) {
-        add(a.text(label, 15f, C.SUB))
-        add(a.text(value, 24f, color, bold = true, lines = 1), top = 8)
-        add(a.text(sub, 13f, C.DIM, lines = 1), top = 6)
+    private fun stat(label: String, value: String, sub: String, color: Int = C.TEXT): View = a.vbox {
+        add(a.text(label, 15f, C.SUB, lines = 1))
+        add(a.text(value, 21f, color, bold = true, lines = 1, tabular = true), top = 8)
+        add(a.text(sub, 14f, C.DIM, lines = 1), top = 6)
     }
 
     private fun row(t: Trip, fmt: SimpleDateFormat, hm: SimpleDateFormat): View = a.hbox {
@@ -69,7 +70,7 @@ class LogbookScreen(private val a: MainActivity) {
             val who = if (t.driver.isNotEmpty()) " · ${t.driver}" else ""
             add(a.text("${AppController.fmt1(t.startOdoKm)} → ${AppController.fmt1(t.endOdoKm)} km" + (if (t.classifiedBy != ClassifiedBy.NONE) " · ${t.classifiedBy.label} 분류" else "") + who, 14f, C.DIM, lines = 1), top = 4)
         }, 0, WRAP, 1f)
-        add(a.text(AppController.fmtKm(t.distanceKm), 18f, bold = true).apply { gravity = Gravity.END }, a.dp(if (narrow) 90 else 120), WRAP, end = 14)
+        add(a.text(AppController.fmtKm(t.distanceKm), 18f, bold = true, tabular = true).apply { gravity = Gravity.END }, a.dp(if (narrow) 90 else 120), WRAP, end = 14)
         add(
             a.chip(t.purpose.label + " ▾", HomeScreen.purposeColor(t.purpose), HomeScreen.purposeBg(t.purpose), 15f).apply {
                 minWidth = a.dp(110)
