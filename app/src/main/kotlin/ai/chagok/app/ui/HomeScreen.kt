@@ -60,7 +60,8 @@ class HomeScreen(private val a: MainActivity) {
         add(a.icon(Ic.PERSON, C.SUB, 26), WRAP, WRAP, end = 14)
         add(a.vbox {
             add(a.text(d?.driver?.name ?: "운전자 확인 중", 20f, bold = true, lines = 1))
-            if (d != null) add(a.text(d.method.label + "로 인식", 14f, C.SUB, lines = 1), top = 4)
+            // "직접 선택" 은 받침이 있어 "~로 인식" 이 어색하다. 직접 고른 경우는 그대로 적는다
+            if (d != null) add(a.text(if (d.method == DriverMethod.MANUAL) "직접 선택" else d.method.label + "로 인식", 14f, C.SUB, lines = 1), top = 4)
         }, 0, WRAP, 1f, end = 12)
         add(a.button("바꾸기", BtnStyle.SECONDARY) { a.pickDriver() }.apply { contentDescription = "운전자 바꾸기" }, WRAP, WRAP)
     }
