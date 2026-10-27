@@ -49,10 +49,16 @@ class SimulatedVehicle(
     private var energyTarget: Double? = null
     private var onEnergyDone: (() -> Unit)? = null
 
+    /**
+     * 한 틱의 실제 간격. 스크린샷 자동 촬영에서만 [timeScale] 로 빨리 감는다.
+     * 틱마다 움직이는 거리·가상 시각은 그대로라 기록 결과(거리·시각·분류)는 실제 시연과 같다.
+     */
+    private val tickMs: Long get() = (TICK_MS / timeScale.coerceAtLeast(1)).coerceAtLeast(16L)
+
     private val tick = object : Runnable {
         override fun run() {
             step()
-            handler.postDelayed(this, TICK_MS)
+            handler.postDelayed(this, tickMs)
         }
     }
 
@@ -103,7 +109,7 @@ class SimulatedVehicle(
             // 시속 60km 가정: 틱(0.25초) = 가상 30초 = 0.5km
             val stepKm = minOf(KM_PER_TICK, r.roadKm - r.progressKm)
             r.progressKm += stepKm
-            clockOffset += VIRTUAL_MS_PER_TICK - TICK_MS
+            clockOffset += VIRTUAL_MS_PER_TICK - tickMs
             odoKm += stepKm
             val f = r.progressKm / r.roadKm
             lat = r.fromLat + (r.toLat - r.fromLat) * f
@@ -140,6 +146,9 @@ class SimulatedVehicle(
     private fun round1(v: Double) = Math.round(v * 10) / 10.0
 
     companion object {
+        /** 빨리 감기 배율 (1 = 실시간 시연). 자동 촬영이 실행 인텐트의 sim_speed 로 정한다 */
+        var timeScale = 1
+
         private const val TICK_MS = 250L
         private const val VIRTUAL_MS_PER_TICK = 30_000L
         private const val KM_PER_TICK = 0.5

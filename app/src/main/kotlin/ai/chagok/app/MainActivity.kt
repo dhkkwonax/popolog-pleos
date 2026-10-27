@@ -105,6 +105,8 @@ class MainActivity : Activity() {
         window.statusBarColor = C.BG
         window.navigationBarColor = C.BG
         window.setBackgroundDrawable(ColorDrawable(C.BG))
+        // 스크린샷 자동 촬영용 빨리 감기 (am start --ei sim_speed N). 가상 차량에만 영향
+        ai.chagok.app.vehicle.SimulatedVehicle.timeScale = intent.getIntExtra("sim_speed", 1).coerceIn(1, 8)
         controller = AppController(this)
         buildShell()
         controller.addListener(onChanged)
