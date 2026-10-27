@@ -33,6 +33,8 @@ object C {
     val NAV_ACTIVE = Color.parseColor("#2A3441")
     val ACCENT = Color.parseColor("#2DD4BF")
     val ACCENT_BG = Color.parseColor("#123B39")
+    /** 정상·완료 표시 (체크). 카드 위 8:1 이상 */
+    val POSITIVE = Color.parseColor("#4ADE80")
     val AMBER = Color.parseColor("#FBBF24")
     val AMBER_BG = Color.parseColor("#3A2E10")
     val RED = Color.parseColor("#F87171")

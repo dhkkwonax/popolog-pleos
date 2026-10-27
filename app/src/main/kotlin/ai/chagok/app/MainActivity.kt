@@ -254,6 +254,15 @@ class MainActivity : Activity() {
             val t = loc[1] - stageLoc[1]
             return android.graphics.Rect(l, t, l + v.width, t + v.height)
         }
+        // 화면이 자리를 정해 둔 경우 (홈: 차량 카드 제목 줄 오른쪽). 제목 글자와 겹치지 않을 때만 쓴다
+        (content.findViewWithTag<LinearLayout>(ai.chagok.app.ui.HomeScreen.OVERLAY_SLOT))?.let { slot ->
+            val r = rectOf(slot)
+            val title = slot.getChildAt(0) as? TextView
+            val textRight = r.left + (title?.let { it.paint.measureText(it.text.toString()).toInt() } ?: 0)
+            val x = r.right - w
+            val y = r.top + (r.height() - h) / 2
+            if (x - m > textRight && y >= 0) return x to y
+        }
         // 머리말에서 실제로 글자·칩이 그려진 칸들 (제목 묶음은 폭을 다 차지하므로 그 안의 자식을 본다)
         val taken = mutableListOf<android.graphics.Rect>()
         for (i in 0 until statusBar.childCount) {
@@ -364,6 +373,9 @@ class MainActivity : Activity() {
     private fun updateStatus() {
         val c = controller
         statusBar.removeAllViews()
+        // 홈은 페이지 제목·상태 줄 대신 차량·운전자 카드(HomeScreen)가 맨 위에 온다
+        statusBar.visibility = if (tab == Tab.HOME) View.GONE else View.VISIBLE
+        if (tab == Tab.HOME) return
         // 제목 24sp. 차량 상태는 칩 대신 회색 글자 한 줄로 차종 옆(좁은 창은 아래 줄)에 둔다
         val ev = c.gateway.info.powertrain == Powertrain.EV
         val state = listOf(

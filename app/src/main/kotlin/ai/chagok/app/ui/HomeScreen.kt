@@ -6,6 +6,7 @@ import ai.chagok.app.core.TaxReport
 import ai.chagok.app.model.DriverMethod
 import ai.chagok.app.model.ExpenseCategory
 import ai.chagok.app.model.TripPurpose
+import ai.chagok.app.model.Powertrain
 import android.view.Gravity
 import android.view.View
 import java.text.SimpleDateFormat
@@ -20,30 +21,95 @@ class HomeScreen(private val a: MainActivity) {
      * 그래서 가장 큰 숫자는 이번 달 차량비, 바로 아래 한 줄은 지금 손볼 것(발견 사항)이다.
      */
     fun render(): View = a.vbox {
-        add(finding())
+        // 홈은 페이지 제목 대신 차량·운전자 카드로 시작한다 (머리말의 작은 글자 줄들을 큰 타일로)
+        add(vehicleCard())
         c.driverGreeting?.let { add(greeting(it), top = 14) }
+        add(statusCard(), top = 14)
         c.pendingExpense()?.let { add(expensePrompt(it), top = 14) }
         c.pendingTrip()?.let { add(tripPrompt(it), top = 14) }
-        add(kpis(), top = 16)
-        add(recent(), top = 16)
+        add(costCard(), top = 14)
+        add(recent(), top = 14)
     }
 
-    /** 제목 아래 한 줄: 처리할 것이 있으면 그것, 없으면 방금 자동 기록된 것 */
-    private fun finding(): View {
-        val pendingTrips = c.trips.count { it.purpose == TripPurpose.UNCLASSIFIED }
-        val pendingAmounts = c.expenses.count { it.pendingAmount }
-        val todo = listOfNotNull(
-            if (pendingAmounts > 0) "주유·충전 ${pendingAmounts}건 금액 입력 필요" else null,
-            if (pendingTrips > 0) "운행 ${pendingTrips}건 목적 확인 필요" else null,
-        )
-        val (ic, color, line) = when {
-            todo.isNotEmpty() -> Triple(Ic.ALERT, C.AMBER, todo.joinToString(" · "))
-            c.lastNotice.isNotEmpty() -> Triple(Ic.CHECK, C.SUB, c.lastNotice)
-            else -> Triple(Ic.CHECK, C.SUB, "이번 달 기록이 모두 정리됐어요")
+    /** 차량·운전자 카드: 제목 줄(차종·번호판), 운전자, 차량 상태 3칸 */
+    private fun vehicleCard(): View = a.card(padDp = 22) {
+        val info = c.gateway.info
+        // 제목 줄 오른쪽 빈자리는 시연 오버레이가 쓴다 (tag 로 찾음)
+        add(a.hbox {
+            tag = OVERLAY_SLOT
+            add(a.text(info.title, 15f, C.SUB, lines = 1), 0, WRAP, 1f)
+        })
+        val driver = driverRow()
+        val tiles = stateTiles()
+        if (a.isNarrow) {
+            add(driver, top = 14)
+            add(a.divider(), top = 16)
+            add(tiles, top = 16)
+        } else {
+            // 넓은 창: 운전자와 상태 3칸을 한 줄에
+            add(a.hbox(Gravity.CENTER_VERTICAL) {
+                add(driver, 0, WRAP, 1.3f, end = 20)
+                add(a.vline(), WRAP, MATCH, end = 20)
+                add(tiles, 0, WRAP, 2f)
+            }, top = 14)
         }
-        return a.hbox {
-            add(a.icon(ic, color, 20), WRAP, WRAP, end = 10)
-            add(a.text(line, 18f, if (todo.isNotEmpty()) C.TEXT else C.SUB), 0, WRAP, 1f)
+    }
+
+    private fun driverRow(): View = a.hbox(Gravity.CENTER_VERTICAL) {
+        val d = c.driver
+        add(a.icon(Ic.PERSON, C.SUB, 26), WRAP, WRAP, end = 14)
+        add(a.vbox {
+            add(a.text(d?.driver?.name ?: "운전자 확인 중", 20f, bold = true, lines = 1))
+            if (d != null) add(a.text(d.method.label + "로 인식", 14f, C.SUB, lines = 1), top = 4)
+        }, 0, WRAP, 1f, end = 12)
+        add(a.button("바꾸기", BtnStyle.SECONDARY) { a.pickDriver() }.apply { contentDescription = "운전자 바꾸기" }, WRAP, WRAP)
+    }
+
+    /** P 주차 / 누적 km / 연료(배터리) % — 숫자는 크게, 단위·뜻은 라벨로 */
+    private fun stateTiles(): View {
+        val ev = c.gateway.info.powertrain == Powertrain.EV
+        val low = c.energyPercent < 20
+        fun tile(value: String, label: String, color: Int = C.TEXT) = a.vbox {
+            add(a.text(value, 24f, color, bold = true, lines = 1, tabular = true))
+            add(a.text(label, 15f, C.SUB, lines = 1), top = 4)
+        }
+        val drive = if (c.isDriving) tile("주행 중", "이번 운행 " + AppController.fmtKm(c.liveTripKm)) else tile("P", "주차 중")
+        val odo = tile(String.format(Locale.US, "%,d", Math.round(c.odoKm)), "km 누적")
+        val energy = tile("${Math.round(c.energyPercent)}%", if (ev) "배터리" else "연료", if (low) C.AMBER else C.TEXT)
+        return a.hbox(Gravity.TOP) {
+            add(drive, 0, WRAP, 1f, end = 12)
+            add(odo, 0, WRAP, 1.2f, end = 12)
+            add(energy, 0, WRAP, 1f)
+        }
+    }
+
+    /** 발견 사항 + 확인할 항목을 한 장으로. 0건이면 초록 체크, 있으면 노란색으로 그 항목 바로 가기 */
+    private fun statusCard(): View = a.card(padDp = 20) {
+        val pendingTrip = c.trips.firstOrNull { it.purpose == TripPurpose.UNCLASSIFIED }
+        val pendingExpense = c.expenses.firstOrNull { it.pendingAmount }
+        val nTrips = c.trips.count { it.purpose == TripPurpose.UNCLASSIFIED }
+        val nAmounts = c.expenses.count { it.pendingAmount }
+        if (nTrips + nAmounts == 0) {
+            add(a.hbox {
+                add(a.icon(Ic.CHECK, C.POSITIVE, 24), WRAP, WRAP, end = 12)
+                add(a.text("이번 달 기록이 모두 정리됐어요", 17f, C.TEXT), 0, WRAP, 1f)
+            })
+            return@card
+        }
+        val items = listOfNotNull(
+            pendingExpense?.let { e -> "주유·충전 ${nAmounts}건 금액 입력 필요" to { a.askAmountByKeypad(e) } },
+            pendingTrip?.let { t -> "운행 ${nTrips}건 목적 확인 필요" to { a.choosePurpose(t) } },
+        )
+        items.forEachIndexed { i, (label, go) ->
+            if (i > 0) add(a.divider(), top = 12)
+            add(a.hbox {
+                add(a.icon(Ic.ALERT, C.AMBER, 24), WRAP, WRAP, end = 12)
+                add(a.text(label, 17f, C.AMBER, bold = true), 0, WRAP, 1f, end = 8)
+                add(a.icon(Ic.CHEVRON_RIGHT, C.AMBER, 22), WRAP, WRAP)
+                minimumHeight = a.touchHeight(52)
+                background = a.pressable(android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
+                setOnClickListener { go() }
+            }, top = if (i > 0) 12 else 0)
         }
     }
 
@@ -108,7 +174,8 @@ class HomeScreen(private val a: MainActivity) {
         }, top = 18)
     }
 
-    private fun kpis(): View {
+    /** 차량비 카드: 왼쪽에 이번 달 차량비(가장 큰 숫자), 오른쪽 빈자리에 주행·업무사용 타일 */
+    private fun costCard(): View {
         val now = c.gateway.now()
         val cal = Calendar.getInstance(TaxReport.KST).apply { timeInMillis = now }
         val y = cal.get(Calendar.YEAR)
@@ -119,43 +186,29 @@ class HomeScreen(private val a: MainActivity) {
         val monthCost = c.expenses.filter { sameMonth(it.time) && !it.pendingAmount }.sumOf { it.amountWon }
         val monthKm = c.trips.filter { sameMonth(it.startTime) }.sumOf { it.distanceKm }
         val year = TaxReport.summarize(y, c.trips, c.expenses)
-        val todo = year.unclassifiedTrips + year.pendingExpenses
         val perKm = if (monthKm > 0) monthCost / monthKm else 0.0
 
-        // 답 숫자(이번 달 차량비)는 나머지보다 확실히 크게 (큰 화면 48 · 30sp)
-        val lead = kpi("${m + 1}월 차량비", AppController.won(monthCost), "km당 ${Math.round(perKm)}원 · 주행 ${AppController.fmtKm(monthKm)}", LEAD_SP) { a.select(MainActivity.Tab.LEDGER) }
-        data class Fig(val label: String, val value: String, val sub: String, val color: Int, val tab: MainActivity.Tab)
-        val figs = listOf(
-            Fig("${m + 1}월 주행", AppController.fmtKm(monthKm), "계기판 누적거리 기준", C.TEXT, MainActivity.Tab.LOGBOOK),
-            Fig("${y}년 업무사용비율", String.format(Locale.US, "%.1f%%", year.businessRatio * 100), "출퇴근 포함", C.TEXT, MainActivity.Tab.TAX),
-            Fig(
-                "확인할 항목", "${todo}건", if (todo == 0) "모두 정리됨" else "미분류 ${year.unclassifiedTrips} · 금액 ${year.pendingExpenses}",
-                if (todo > 0) C.AMBER else C.TEXT, MainActivity.Tab.LOGBOOK,
-            ),
-        )
-        if (a.isNarrow) {
-            // 좁은 창: 답 숫자를 맨 위 전체 폭에, 나머지는 '라벨 … 값' 한 줄씩 (세 칸으로 나누면 라벨이 잘린다)
-            val list = a.vbox {
-                figs.forEachIndexed { i, f ->
-                    if (i > 0) add(a.divider(), top = 14)
-                    add(a.hbox {
-                        add(a.text(f.label, 15f, C.SUB, lines = 1), 0, WRAP, 1f, end = 12)
-                        add(a.text(f.value, 20f, f.color, bold = true, lines = 1, tabular = true), WRAP, WRAP)
-                        setOnClickListener { a.select(f.tab) }
-                    }, top = if (i > 0) 14 else 0)
-                }
-            }
-            return a.strip(listOf(list), 1, lead)
-        }
-        // 넓은 창: 답 숫자 칸을 넓게(1.6), 나머지 셋을 같은 폭으로 옆에
+        val lead = kpi("${m + 1}월 차량비", AppController.won(monthCost), "km당 ${Math.round(perKm)}원", LEAD_SP) { a.select(MainActivity.Tab.LEDGER) }
+        val km = kpi("${m + 1}월 주행", AppController.fmtKm(monthKm), "계기판 누적거리 기준") { a.select(MainActivity.Tab.LOGBOOK) }
+        val ratio = kpi("업무사용", String.format(Locale.US, "%.1f%%", year.businessRatio * 100), "${y}년 · 출퇴근 포함") { a.select(MainActivity.Tab.TAX) }
+        val pad = a.dp(22)
+        fun cell(v: View) = a.vbox { setPadding(pad, pad, pad, pad); addView(v) }
         return a.hbox(Gravity.TOP) {
             background = a.rounded(C.SURFACE, 20)
-            val pad = a.dp(22)
-            fun cell(v: View) = a.vbox { setPadding(pad, pad, pad, pad); addView(v) }
-            add(cell(lead), 0, WRAP, 1.6f)
-            for (f in figs) {
+            add(cell(lead).apply { gravity = Gravity.CENTER_VERTICAL }, 0, MATCH, if (a.isNarrow) 1.25f else 1.4f)
+            add(a.vline(), WRAP, MATCH)
+            if (a.isNarrow) {
+                // 좁은 창: 오른쪽에 두 타일을 세로로
+                add(a.vbox {
+                    add(cell(km))
+                    add(a.divider())
+                    add(cell(ratio))
+                }, 0, WRAP, 1f)
+            } else {
+                // 넓은 창: 세 칸 한 줄
+                add(cell(km), 0, MATCH, 1f)
                 add(a.vline(), WRAP, MATCH)
-                add(cell(kpi(f.label, f.value, f.sub, color = f.color) { a.select(f.tab) }), 0, WRAP, 1f)
+                add(cell(ratio), 0, MATCH, 1f)
             }
         }
     }
@@ -212,6 +265,9 @@ class HomeScreen(private val a: MainActivity) {
         private const val LEAD_SP = 38f
         private const val SIBLING_SP = 24f
         private const val RECENT_ROWS = 5
+
+        /** 시연 오버레이가 놓일 자리 (차량 카드 제목 줄 오른쪽) */
+        const val OVERLAY_SLOT = "overlay-slot"
 
         /** 운행 목적 표시: 정상은 잉크, 손봐야 할 미분류만 색 */
         fun purposeColor(p: TripPurpose) = if (p == TripPurpose.UNCLASSIFIED) C.AMBER else C.TEXT
