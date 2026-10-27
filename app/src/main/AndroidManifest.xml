@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    android:versionCode="1"
+    android:versionName="0.1.0-demo">
+
+
+    <!-- Pleos Vehicle SDK: 주행거리(Odometer), 연료·배터리(Fuel/EvBattery), 차량정보(CarInfo), 브레이크 -->
+    <uses-permission android:name="pleos.car.permission.CAR_MILEAGE" />
+    <!-- Pleos Connect 2.1.0 에뮬레이터는 주행거리를 CAR_DRIVE 로 묶는다 (CAR_MILEAGE 미정의) -->
+    <uses-permission android:name="pleos.car.permission.CAR_DRIVE" />
+    <uses-permission android:name="pleos.car.permission.CAR_ENERGY" />
+    <uses-permission android:name="pleos.car.permission.CAR_INFO" />
+    <uses-permission android:name="pleos.car.permission.CAR_POWERTRAIN" />
+    <!-- 운전석 시트 위치로 시동 직후 운전자를 판별 -->
+    <uses-permission android:name="pleos.car.permission.CAR_SEATS" />
+    <!-- Pleos FusedLocation / STT / TTS SDK -->
+    <uses-permission android:name="pleos.car.permission.FUSED_LOCATION" />
+    <uses-permission android:name="pleos.car.permission.STT_SERVICE" />
+    <uses-permission android:name="pleos.car.permission.TTS_SERVICE" />
+
+    <application
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:label="차곡"
+        android:supportsRtl="true"
+        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        <activity
+            android:name="ai.chagok.app.MainActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|density|uiMode"
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

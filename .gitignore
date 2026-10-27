@@ -1,0 +1,15 @@
+# 빌드 산출물
+build/
+.gradle/
+.kotlin/
+*.apk
+*.aab
+# 기기별 SDK 경로
+local.properties
+# 서명 키
+*.jks
+*.keystore
+keystore.properties
+# IDE
+.idea/
+*.iml
