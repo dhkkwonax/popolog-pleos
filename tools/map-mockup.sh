@@ -12,3 +12,10 @@ for f in "$DIR"/*_1col.png; do
     printf "%s: " "$(basename "$out")"
     "$JAVA" "$HERE/MapMockup.java" "$f" "$out" "$DIR/nav_1col.xml" "$(cat "$DIR/nav_1col.bounds")" "$HERE/osm-tiles" "$Z" "$TX" "$TY" "$FONT"
 done
+# GPU 모드에서 창을 나눈 뒤 내비 칸이 검게 남은 장면은, 정상으로 그려진 기준 장면(시동 직후 00a)의 내비 칸으로 채운다
+REF="$DIR/00a_ignition_driver_recognized_1col_mockup.png"
+if [ -f "$REF" ]; then
+    for f in "$DIR"/*_1col.png; do
+        "$JAVA" "$HERE/NavPanePaste.java" "$REF" "$f" "${f%.png}_mockup.png" "$(cat "$DIR/nav_1col.bounds")"
+    done
+fi

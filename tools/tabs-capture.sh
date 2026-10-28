@@ -1,7 +1,7 @@
 #!/bin/bash
 # 6개 탭을 2칸·1칸으로 빠르게 찍어 배치를 확인한다. usage: tabs-capture.sh <serial> <out-dir>
 set -u
-A="$HOME/Android/Sdk/platform-tools/adb -s $1"; export ADB="$A"; OUT=$2; U="$(dirname "$0")/ui.sh"
+A="${ADB_BIN:-/mnt/c/Android/Sdk/platform-tools/adb.exe} -s $1"; export ADB="$A"; OUT=$2; U="$(dirname "$0")/ui.sh"
 mkdir -p "$OUT"
 read -r W H < <($A shell wm size | grep -oE "[0-9]+x[0-9]+" | tail -1 | tr x ' ')
 $A shell am force-stop --user current ai.chagok.app

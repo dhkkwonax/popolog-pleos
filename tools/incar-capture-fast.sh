@@ -4,12 +4,14 @@
 #  - 시연 운행은 촬영 때만 빨리 감는다 (am start --ei sim_speed). 틱당 거리·가상 시각은 같아 기록 결과도 같다
 #  - 같은 장면을 2칸으로 찍고, 창을 나눠 1칸으로 바로 이어 찍는다 (운행·주유를 한 번만 한다)
 #  - 고정 sleep 대신 조건이 맞을 때까지 기다린다
-# usage: incar-capture-fast.sh <serial> <out-dir>
+# usage: incar-capture-fast.sh <serial> <out-dir>   (Windows 에뮬레이터: emulator-5570)
 set -u
 SER=$1; OUT=$2
 SPEED=${SIM_SPEED:-2}
 HERE="$(cd "$(dirname "$0")" && pwd)"
-export ADB="$HOME/Android/Sdk/platform-tools/adb -s $SER"
+# ADB_BIN: 기본은 Windows 에뮬레이터(Intel Arc GPU)용 Windows adb. WSL 에뮬레이터면 ADB_BIN=$HOME/Android/Sdk/platform-tools/adb
+ADB_BIN=${ADB_BIN:-/mnt/c/Android/Sdk/platform-tools/adb.exe}
+export ADB="$ADB_BIN -s $SER"
 A="$ADB"
 U="$HERE/ui.sh"
 mkdir -p "$OUT"
@@ -110,9 +112,9 @@ done
 # 07a 운전자 고르기 / 07b 바뀐 뒤
 stale; tap "=홈"; sleep 0.6; stale
 cur=$(current_driver); [ -n "$cur" ] || die "no current driver"
-tap "운전자 바꾸기"; waitfor "지금 운전하는 분"; shot "07a_driver_picker_$MODE"
+waitfor "운전자 바꾸기"; tap "운전자 바꾸기"; waitfor "지금 운전하는 분"; shot "07a_driver_picker_$MODE"
 $A shell input keyevent KEYCODE_BACK; sleep 0.3; toggle
-tap "운전자 바꾸기"; waitfor "지금 운전하는 분"; shot "07a_driver_picker_$MODE"
+waitfor "운전자 바꾸기"; tap "운전자 바꾸기"; waitfor "지금 운전하는 분"; shot "07a_driver_picker_$MODE"
 other=$($U dump | grep -oE "^(김차곡|박하나) · [^ ]+" | grep -v "^$cur " | head -1)
 [ -n "$other" ] || die "no other driver"
 tap "$other"; waitfor "님으로 바꿨어요"; both 07b_driver_changed

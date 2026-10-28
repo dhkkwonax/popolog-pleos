@@ -211,8 +211,10 @@ class MainActivity : Activity() {
             renderOverlay()
         } ?: return
         overlayHost.addView(v, FrameLayout.LayoutParams(WRAP, WRAP))
-        // 본문이 다 놓인 뒤에야 빈 곳을 잴 수 있다
-        stage.post { placeOverlay() }
+        // 본문이 다 놓인 뒤에야 빈 곳을 잴 수 있다. 자리를 잡기 전에는 왼쪽 위(0,0)에 잠깐 떠서
+        // 본문을 가리거나 잘못 눌릴 수 있으므로, 자리를 잡을 때까지 숨겨 둔다
+        overlayHost.visibility = View.INVISIBLE
+        stage.post { placeOverlay(); overlayHost.visibility = View.VISIBLE }
     }
 
     private fun overlayLp() = overlayHost.layoutParams as FrameLayout.LayoutParams

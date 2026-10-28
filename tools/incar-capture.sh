@@ -7,7 +7,9 @@
 # usage: incar-capture.sh <serial> <out-dir>
 set -u
 SER=$1; OUT=$2
-export ADB="$HOME/Android/Sdk/platform-tools/adb -s $SER"
+# ADB_BIN: 기본은 Windows 에뮬레이터(Intel Arc GPU)용 Windows adb. WSL 에뮬레이터면 ADB_BIN=$HOME/Android/Sdk/platform-tools/adb
+ADB_BIN=${ADB_BIN:-/mnt/c/Android/Sdk/platform-tools/adb.exe}
+export ADB="$ADB_BIN -s $SER"
 A="$ADB"
 U="$(dirname "$0")/ui.sh"
 mkdir -p "$OUT"
