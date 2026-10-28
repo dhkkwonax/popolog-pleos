@@ -15,3 +15,6 @@ keystore.properties
 *.iml
 # 지도 타일 (~/Developments/chagok/tools/osm-tiles 링크)
 tools/osm-tiles
+
+# 공모전 제출용 APK 는 apk/ 에 둔다
+!apk/*.apk
