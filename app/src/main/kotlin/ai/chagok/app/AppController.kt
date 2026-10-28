@@ -273,11 +273,14 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
 
     // ---- TripRecorder.Listener ----
     override fun onTripStarted(start: TripStart) {
+        // 시연 자동 촬영이 logcat 으로 운행 시작·끝을 확인한다 (운행 중에는 화면 읽기가 느려 쓸 수 없다)
+        android.util.Log.i("Popolog", "trip started")
         lastNotice = "운행 시작 · 계기판 ${fmtKm(start.odoKm)}"
         notifyChanged()
     }
 
     override fun onTripEnded(end: TripEnd) {
+        android.util.Log.i("Popolog", "trip ended")
         val c = TripClassifier.classify(end.start.lat, end.start.lng, end.lat, end.lng, places)
         val trip = Trip(
             startTime = end.start.time, endTime = end.time,

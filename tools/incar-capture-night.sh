@@ -28,14 +28,15 @@ HY=$((H * 560 / 1125))
 SPLIT_X=$((W * 1694 / 2560))
 HANDLE_2COL=$((W * 1990 / 2000))
 chagok_right() { $A shell dumpsys activity activities | tr -d '\r' | grep -A1 "A=[0-9]*:ai.chagok.app" | grep -oE "mBounds=Rect\([^)]*\)" | head -1 | grep -oE "[0-9]+" | sed -n 3p; }
-# 찍기 전에 앱 창의 실제 bounds 로 1칸/2칸을 판정해 이름의 _1col/_2col 과 맞는지 보고,
-# 0.7초 간격으로 두 번 찍어 픽셀이 같을 때만 저장한다 (지난 화면·그리는 중인 화면 방지)
+# 찍기 전에 앱 창의 실제 bounds 로 1칸/2칸을 판정해 이름의 _1col/_2col 과 맞는지 본다.
+# DOUBLE=1 이면 0.7초 간격으로 두 번 찍어 픽셀이 같을 때만 저장한다 (CPU 모드용. GPU 창 모드는 지난 화면이 찍히지 않아 끈다)
 shot() {
     local n=$1 want=${1##*_} r act
     local i
     for i in $(seq 1 20); do
         r=$(chagok_right); act=2col; [ "${r:-0}" -le $((SPLIT_X + 5)) ] && act=1col
         if [ "$act" != "$want" ]; then sleep 0.5; continue; fi
+        if [ "${DOUBLE:-0}" != 1 ]; then $A exec-out screencap -p > "$OUT/$n.png"; log "$n"; return 0; fi
         $A exec-out screencap -p > "$OUT/.a.png"; sleep 0.7; $A exec-out screencap -p > "$OUT/.b.png"
         if [ -s "$OUT/.a.png" ] && cmp -s "$OUT/.a.png" "$OUT/.b.png"; then mv "$OUT/.b.png" "$OUT/$n.png"; rm -f "$OUT/.a.png"; log "$n"; return 0; fi
         # 주행 중처럼 계속 바뀌는 장면은 창 판정이 맞으면 여섯 번째에 받아들인다

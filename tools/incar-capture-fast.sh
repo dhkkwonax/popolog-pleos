@@ -7,7 +7,7 @@
 # usage: incar-capture-fast.sh <serial> <out-dir>   (Windows 에뮬레이터: emulator-5570)
 set -u
 SER=$1; OUT=$2
-SPEED=${SIM_SPEED:-1}   # CPU 모드는 화면 확인이 느려 운행 중 장면을 놓치지 않게 1배
+SPEED=${SIM_SPEED:-2}   # CPU 모드(화면 확인이 느림)는 SIM_SPEED=1 DOUBLE=1
 HERE="$(cd "$(dirname "$0")" && pwd)"
 # ADB_BIN: 기본은 Windows 에뮬레이터(Intel Arc GPU)용 Windows adb. WSL 에뮬레이터면 ADB_BIN=$HOME/Android/Sdk/platform-tools/adb
 ADB_BIN=${ADB_BIN:-/mnt/c/Android/Sdk/platform-tools/adb.exe}
@@ -37,8 +37,8 @@ HANDLE_2COL=$((W * 1990 / 2000))
 HANDLE_1COL=$((W * 1705 / 2560))
 
 chagok_right() { $A shell dumpsys activity activities | tr -d '\r' | grep -A1 "A=[0-9]*:ai.chagok.app" | grep -oE "mBounds=Rect\([^)]*\)" | head -1 | grep -oE "[0-9]+" | sed -n 3p; }
-# 찍기 전에 앱 창의 실제 bounds 로 1칸/2칸을 판정해 이름의 _1col/_2col 과 맞는지 보고,
-# 0.7초 간격으로 두 번 찍어 픽셀이 같을 때만 저장한다 (지난 화면·그리는 중인 화면 방지)
+# 찍기 전에 앱 창의 실제 bounds 로 1칸/2칸을 판정해 이름의 _1col/_2col 과 맞는지 본다.
+# DOUBLE=1 이면 0.7초 간격으로 두 번 찍어 픽셀이 같을 때만 저장한다 (CPU 모드용. GPU 창 모드는 지난 화면이 찍히지 않아 끈다)
 shot() {
     local n=$1 want=${1##*_} r act
     local i
@@ -46,7 +46,7 @@ shot() {
         r=$(chagok_right); act=2col; [ "${r:-0}" -le $((SPLIT_X + 5)) ] && act=1col
         if [ "$act" != "$want" ]; then sleep 0.5; continue; fi
         # 주행 중 장면은 계속 바뀌고 운행이 짧아 한 번에 찍는다 (MOVING=1)
-        if [ "${MOVING:-0}" = 1 ]; then $A exec-out screencap -p > "$OUT/$n.png"; log "$n (주행 중, 한 번)"; return 0; fi
+        if [ "${MOVING:-0}" = 1 ] || [ "${DOUBLE:-0}" != 1 ]; then $A exec-out screencap -p > "$OUT/$n.png"; log "$n"; return 0; fi
         $A exec-out screencap -p > "$OUT/.a.png"; sleep 0.7; $A exec-out screencap -p > "$OUT/.b.png"
         if [ -s "$OUT/.a.png" ] && cmp -s "$OUT/.a.png" "$OUT/.b.png"; then mv "$OUT/.b.png" "$OUT/$n.png"; rm -f "$OUT/.a.png"; log "$n"; return 0; fi
         # 주행 중처럼 계속 바뀌는 장면은 창 판정이 맞으면 여섯 번째에 받아들인다
@@ -114,8 +114,15 @@ stale; expand; tap "시연 도착지"; waitfor "→ 회사"; shot 00b_home_demo_
 $A shell input keyevent KEYCODE_BACK; sleep 0.3; stale; fold
 
 # 01 주행 중 (2칸 → 1칸, 같은 운행)
-# 운행이 짧아(1배 약 15초) 화면 읽기 없이 바로 찍는다. 찍은 뒤 사진에 '주행 중' 이 있는지 눈으로 확인한다
-drive "→ 회사"; sleep 4; MOVING=1 shot "01_home_driving_$MODE"; toggle; MOVING=1 shot "01_home_driving_$MODE"
+# 운행 중에는 화면이 계속 바뀌어 화면 읽기(uiautomator)가 멈춰 기다리므로, 앱이 남기는 logcat 으로 운행 시작·끝을 본다.
+# 시작을 본 뒤 2칸·1칸을 찍고, 그때까지 운행이 끝나지 않았는지 확인한다
+triplog() { $A logcat -d -s Popolog:I | tr -d '\r' | grep -c "trip $1"; }
+$A logcat -c
+drive "→ 회사"
+for _ in $(seq 1 40); do [ "$(triplog started)" -ge 1 ] && break; sleep 0.25; done
+[ "$(triplog started)" -ge 1 ] || die "운행 시작이 안 보임"
+sleep 0.5; MOVING=1 shot "01_home_driving_$MODE"; toggle; MOVING=1 shot "01_home_driving_$MODE"
+[ "$(triplog ended)" = 0 ] || die "운행 장면을 찍는 동안 운행이 끝남 (SIM_SPEED=1 로 다시)"
 waitgone "주행 중"
 # 02 업무였나요 (1칸 → 2칸)
 stale; drive "→ 하남 쇼핑몰"; waitfor "업무였나요"; both 02_ask_business

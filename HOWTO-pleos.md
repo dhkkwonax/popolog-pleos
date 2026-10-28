@@ -43,20 +43,23 @@ $WA -s emulator-5570 install -r 'C:\Android\dl\app-sim-debug.apk'   # Windows ad
 $WA -s emulator-5570 shell pm grant --user current ai.chagok.app pleos.car.permission.FUSED_LOCATION
 ```
 
-## 시연 자동 촬영 (GPU 창 모드, 주간 약 3분 + 야간 약 1분)
+## 시연 자동 촬영 (GPU 창 모드, 주간 약 2분 30초 + 야간 약 1분)
 
 ```bash
 cd ~/Developments/chagok/tools
 D=~/Developments/chagok/screenshots-$(date +%Y%m%d-%H%M%S)
 ./emu-restart.sh gpu && ./incar-capture-fast.sh emulator-5570 $D
 ./emu-restart.sh gpu && ./incar-capture-night.sh emulator-5570 $D-night $D   # 켠 직후 야간으로 바꾸고 앱을 띄운다
-# 미니PC 화면을 쓸 수 없을 때(창을 못 띄울 때)는 gpu 대신 cpu
+# 미니PC 화면을 쓸 수 없을 때(창을 못 띄울 때)는 gpu 대신 cpu 로 켜고 SIM_SPEED=1 DOUBLE=1 ./incar-capture-fast.sh …
 ```
 
 - 주간 21장(1칸 10 · 2칸 11) + 1칸 지도 합성본 10장(`*_1col_mockup.png`), 야간 홈 2장(+1칸 합성본). Z: 에는 1칸은 합성본만 넣는다
-- 찍기 전에 dumpsys 로 앱 창의 실제 bounds 를 읽어 파일 이름의 `_1col`/`_2col` 과 맞을 때만 찍고, 0.7초 간격으로 두 번 찍어 같을 때만 저장한다.
-  주행 중 장면만 계속 바뀌어 한 번에 찍는다. 그래도 찍은 뒤에는 한 장씩 열어 본다
-- 빨리 감기는 기본 1배 (`SIM_SPEED`). 화면 확인이 느린 CPU 모드에서 2배면 운행 중 장면을 놓쳐서 1배로 맞췄다
+- 찍기 전에 dumpsys 로 앱 창의 실제 bounds 를 읽어 파일 이름의 `_1col`/`_2col` 과 맞을 때만 찍는다
+- `DOUBLE=1` 이면 0.7초 간격으로 두 번 찍어 같을 때만 저장한다(CPU 모드용). GPU 창 모드는 지난 화면이 찍히지 않아 기본은 끔
+- 운행 장면은 앱이 logcat 에 남기는 `trip started`/`trip ended` 로 확인한다. 시작을 본 뒤 2칸·1칸을 찍고, 그때까지 운행이 끝나지 않았는지 본다.
+  운행 중에는 화면이 계속 바뀌어 화면 읽기(uiautomator)가 10초쯤 멈춰 기다리므로 쓰지 않는다
+- 빨리 감기는 기본 2배 (`SIM_SPEED`). 기록 결과는 실제 시연과 같다
+- 찍은 뒤에는 한 장씩 열어 본다
 - 기본 adb 는 Windows `adb.exe`. 다른 adb 를 쓰려면 `ADB_BIN=… ./incar-capture-fast.sh …`
 - 옆 칸 내비가 검게 남은 장면은 같은 촬영의 기준 장면 내비 칸으로 채운다 (`NavPanePaste.java`)
 
@@ -72,8 +75,9 @@ Windows 화면에 창을 띄우면(`./emu-restart.sh gpu`) 2칸 11장, 2칸↔1�
 
 | 방식 | 주간 21장 |
 |---|---|
-| Windows 에뮬레이터, CPU 렌더링(SwiftShader), 검증 포함 | 약 4분 |
-| Windows 에뮬레이터, Intel Arc GPU, 창 띄움, 검증 포함 | 3분 7초 |
+| Windows 에뮬레이터, CPU 렌더링(SwiftShader), 이중 캡처, 1배 | 약 4분 |
+| **Windows 에뮬레이터, Intel Arc GPU, 창 띄움, 창 판정만, 2배 (기본)** | **2분 30초** |
+| Windows 에뮬레이터, Intel Arc GPU, 창 띄움, 이중 캡처, 1배 | 3분 7초 |
 | Windows 에뮬레이터, Intel Arc GPU, 창 없음 | 2분 16초 (2칸 장면이 틀림) |
 
 ## 다시 설치할 때
