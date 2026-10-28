@@ -1,7 +1,7 @@
 # Pleos Connect 에뮬레이터에서 Popolog 실행·촬영하기 (미니PC)
 
 에뮬레이터는 **Windows 쪽**에서 돌리고, 빌드와 촬영 스크립트는 **WSL** 에서 돌린다.
-**촬영은 CPU 렌더링(`-gpu swiftshader_indirect`) 모드로 한다.** GPU 모드는 화면 캡처가 틀린다 (아래 '촬영').
+**촬영은 CPU 렌더링(`-gpu swiftshader_indirect`) 모드가 검증됐다.** GPU 모드는 창을 띄울 때만 캡처가 맞다 (아래 '촬영').
 (WSL 안 에뮬레이터는 GPU 를 쓰지 못해 CPU 렌더링이었고 지웠다. 이유는 아래 '참고'.)
 
 ## 설치된 것
@@ -58,16 +58,21 @@ D=~/Developments/chagok/screenshots-$(date +%Y%m%d-%H%M%S)
 - 기본 adb 는 Windows `adb.exe`. 다른 adb 를 쓰려면 `ADB_BIN=… ./incar-capture-fast.sh …`
 - 옆 칸 내비가 검게 남은 장면은 같은 촬영의 기준 장면 내비 칸으로 채운다 (`NavPanePaste.java`)
 
-### GPU 모드로 찍지 않는 이유
+### GPU 모드: 창을 띄우면 된다 (2026-10-28 시험)
 
-GPU(`-gpu host`) 에뮬레이터는 창이 2칸으로 바뀐 뒤나 앱이 떠 있는 상태에서 야간으로 바꾼 뒤 화면을 다시 그리지 않아,
-`screencap` 이 지난 1칸 화면이나 어긋난(줄이 밀린) 화면을 돌려준다. 창 관리자 기준으로는 앱이 정상 2칸이다.
-2026-10-28 GPU 모드 촬영에서 2칸 11장이 모두 이렇게 틀렸다. CPU 모드에서는 23장이 모두 정상이었다.
+GPU(`-gpu host`) 에뮬레이터를 **`-no-window` 로 창 없이** 돌리면, 창이 2칸으로 바뀐 뒤나 야간으로 바꾼 뒤 화면을 다시 그리지 않는다.
+그래서 `screencap` 이 지난 1칸 화면이나 어긋난(줄이 밀린) 화면을 돌려준다. 창 관리자 기준으로는 앱이 정상 2칸이다.
+같은 날 GPU 창 없음 촬영에서 2칸 11장이 모두 이렇게 틀렸다.
+
+Windows 화면에 창을 띄우면(`./emu-restart.sh gpu`) 2칸 11장, 2칸↔1칸 전환, 앱이 떠 있는 상태의 야간 전환이 모두 정상으로 찍혔다.
+주간 21장 촬영은 3분 7초 걸렸다(CPU 모드 3분 50초). 에뮬레이터 자체 캡처(`emu screenrecord screenshot`)는 대화상자의 어두운 막이 빠지므로 쓰지 않는다.
+Z: 에 넣은 23장은 CPU 모드 촬영본이다. GPU 창 모드로 바꿀 때도 찍은 뒤 한 장씩 열어 본다.
 
 | 방식 | 주간 21장 |
 |---|---|
 | Windows 에뮬레이터, CPU 렌더링(SwiftShader), 검증 포함 | 약 4분 |
-| Windows 에뮬레이터, Intel Arc GPU | 2분 16초 (2칸 장면이 틀림) |
+| Windows 에뮬레이터, Intel Arc GPU, 창 띄움, 검증 포함 | 3분 7초 |
+| Windows 에뮬레이터, Intel Arc GPU, 창 없음 | 2분 16초 (2칸 장면이 틀림) |
 
 ## 다시 설치할 때
 
