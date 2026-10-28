@@ -53,7 +53,7 @@ D=~/Developments/chagok/screenshots-$(date +%Y%m%d-%H%M%S)
 # 미니PC 화면을 쓸 수 없을 때(창을 못 띄울 때)는 gpu 대신 cpu 로 켜고 SIM_SPEED=1 DOUBLE=1 ./incar-capture-fast.sh …
 ```
 
-- 주간 21장(1칸 10 · 2칸 11) + 1칸 지도 합성본 10장(`*_1col_mockup.png`), 야간 홈 2장(+1칸 합성본). Z: 에는 1칸은 합성본만 넣는다
+- 주간 27장(1칸 13 · 2칸 14, 09a~c 위변조 검증 장면 포함) + 1칸 지도 합성본, 야간 홈 2장(+1칸 합성본). Z: 에는 1칸은 합성본만 넣는다
 - 찍기 전에 dumpsys 로 앱 창의 실제 bounds 를 읽어 파일 이름의 `_1col`/`_2col` 과 맞을 때만 찍는다
 - `DOUBLE=1` 이면 0.7초 간격으로 두 번 찍어 같을 때만 저장한다(CPU 모드용). GPU 창 모드는 지난 화면이 찍히지 않아 기본은 끔
 - 운행 장면은 앱이 logcat 에 남기는 `trip started`/`trip ended` 로 확인한다. 시작을 본 뒤 2칸·1칸을 찍고, 그때까지 운행이 끝나지 않았는지 본다.

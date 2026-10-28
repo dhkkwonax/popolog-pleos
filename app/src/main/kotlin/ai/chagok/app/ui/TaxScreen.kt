@@ -2,6 +2,8 @@ package ai.chagok.app.ui
 
 import ai.chagok.app.AppController
 import ai.chagok.app.MainActivity
+import ai.chagok.app.core.Integrity
+import ai.chagok.app.core.SimulatedTsa
 import ai.chagok.app.core.TaxReport
 import ai.chagok.app.core.TaxSummary
 import ai.chagok.app.model.ExpenseCategory
@@ -25,19 +27,24 @@ class TaxScreen(private val a: MainActivity) {
             add(a.text("${year}년 업무용승용차 리포트", 24f, bold = true))
             add(a.text("법인·개인사업자 업무용 차량 비용 처리용 · 운행기록부 자동 작성", 15f, C.SUB), top = 6)
         }
-        val exportLog = a.button("운행기록부 CSV", BtnStyle.PRIMARY) { exportLogbook(year) }
+        val exportPdf = a.button("운행기록부 PDF", BtnStyle.PRIMARY, icon = Ic.DOC) { exportPdf(year, s) }
+        val exportLog = a.button("운행기록부 CSV") { exportLogbook(year) }
         val exportCost = a.button("비용 명세 CSV") { exportExpenses(year) }
         if (a.isNarrow) {
             // 좁은 창에서는 버튼이 제목을 "리/포트" 로 꺾으므로 제목 아래 줄로 내린다
             add(heading)
-            add(a.grid(2, listOf(exportLog, exportCost), gapDp = 10), top = 14)
+            add(exportPdf, top = 14)
+            add(a.grid(2, listOf(exportLog, exportCost), gapDp = 10), top = 10)
         } else {
             add(a.hbox {
                 add(heading, 0, WRAP, 1f)
+                add(exportPdf, WRAP, WRAP, end = 10)
                 add(exportLog, WRAP, WRAP, end = 10)
                 add(exportCost, WRAP, WRAP)
             })
         }
+
+        add(integrityCard(), top = 16)
 
         add(a.pair(ratioCard(s), deductCard(s, cal), secondWeight = 1.3f), top = 16)
         add(a.pair(costCard(s), checklist(s), secondWeight = 1.3f), top = 12)
@@ -165,6 +172,109 @@ class TaxScreen(private val a: MainActivity) {
         add(item(s.pendingExpenses == 0, "주유·충전 금액", if (s.pendingExpenses == 0) "금액 누락 없음" else "금액 미입력 ${s.pendingExpenses}건"), top = 14)
         add(item(insured, "업무전용 자동차보험", if (insured) "보험료 기록 확인 (법인은 가입 필수)" else "보험료 기록 없음 · 법인은 미가입 시 비용 불인정"), top = 14)
         add(item(null, "감가상각비 한도", "업무사용분 연 800만원 초과분은 다음 해로 이월"), top = 14)
+    }
+
+    /**
+     * 기록 무결성: 해시체인을 처음부터 다시 계산한 결과. 정상이면 잉크색, 어긋나면 그 줄 번호를 빨간색으로.
+     * 타임스탬프 기관은 데모에서 시뮬레이션이라 그렇게 적는다.
+     */
+    private fun integrityCard(): View = a.card {
+        val r = c.integrity
+        val anchor = c.anchors.maxByOrNull { it.day }
+        val title = a.hbox {
+            add(a.icon(Ic.SHIELD, if (r.ok) C.SUB else C.RED, 20), WRAP, WRAP, end = 8)
+            add(a.text("기록 무결성", 15f, C.SUB), 0, WRAP, 1f)
+        }
+        val status = a.vbox {
+            add(title)
+            if (r.ok) {
+                add(a.hbox(Gravity.BOTTOM) {
+                    add(a.text("정상", 30f, bold = true), WRAP, WRAP, end = 10)
+                    add(a.text("체인 ${String.format(Locale.US, "%,d", r.count)}건 검증", 17f, C.SUB, tabular = true), WRAP, WRAP)
+                }, top = 8)
+            } else {
+                add(a.text("${r.firstBadSeq}번째 기록부터 불일치", 26f, C.RED, bold = true, tabular = true), top = 8)
+            }
+        }
+        val fmt = SimpleDateFormat("M/d HH:mm", Locale.KOREAN).apply { timeZone = TaxReport.KST }
+        val details = a.vbox {
+            if (r.ok) {
+                add(a.text("검증 코드 ${Integrity.verifyCode(r.lastHash)}", 17f, bold = true, tabular = true))
+                add(
+                    a.text(
+                        anchor?.let { "마지막 앵커 ${fmt.format(it.stampedAt)} · ${it.day.substring(5).replace('-', '/')} 기록 ${it.count}건" } ?: "아직 앵커 없음",
+                        15f, C.SUB, tabular = true,
+                    ),
+                    top = 6,
+                )
+                add(a.text("타임스탬프: ${SimulatedTsa.NAME} · 외부에는 날짜와 해시만 보냄", 14f, C.DIM), top = 4)
+            } else {
+                val what = when {
+                    r.badKind?.isTrip == true -> c.trips.firstOrNull { it.id == r.badRef }?.let { t ->
+                        "운행 ${SimpleDateFormat("M/d(E)", Locale.KOREAN).apply { timeZone = TaxReport.KST }.format(t.startTime)} " +
+                            "${t.fromName.ifEmpty { "-" }} → ${t.toName.ifEmpty { "-" }}"
+                    } ?: "운행 기록"
+                    r.badKind != null -> "비용 기록"
+                    else -> "기록"
+                }
+                add(a.text("$what · ${r.reason}", 17f, bold = true))
+                add(a.text("이 줄부터 뒤의 해시가 모두 달라져, 고친 시점 이후 기록을 믿을 수 없어요", 15f, C.SUB), top = 6)
+                add(a.text("앵커 ${r.anchorsChecked}개와 대조 · 타임스탬프: ${SimulatedTsa.NAME}", 14f, C.DIM), top = 4)
+            }
+        }
+        val actions = listOf(
+            a.button("다시 검증") {
+                c.reload(); a.render()
+                a.toast(if (c.integrity.ok) "체인 ${c.integrity.count}건을 다시 계산했어요 · 정상" else "${c.integrity.firstBadSeq}번째 기록부터 불일치")
+            },
+            a.button("오늘 기록 앵커") {
+                val made = c.closeDay()
+                a.toast(made?.let { "오늘 기록 ${it.count}건을 앵커로 묶었어요 (시뮬레이션 타임스탬프)" } ?: "오늘 기록이 아직 없어요")
+            },
+        )
+        if (a.isNarrow) {
+            add(status)
+            add(details, top = 14)
+            add(a.grid(2, actions, gapDp = 10), top = 16)
+        } else {
+            add(a.hbox(Gravity.CENTER_VERTICAL) {
+                add(status, 0, WRAP, 0.8f)
+                add(details, 0, WRAP, 1.6f, end = 16)
+                add(a.vbox {
+                    add(actions[0])
+                    add(actions[1], top = 10)
+                }, WRAP, WRAP)
+            })
+        }
+    }
+
+    /** 신고용 운행기록부 PDF. 체인이 어긋나 있으면 만들지 않는다 (검증 코드가 거짓이 되므로) */
+    private fun exportPdf(year: Int, s: TaxSummary) {
+        val r = c.integrity
+        if (!r.ok) {
+            a.dialog(
+                "PDF 를 만들 수 없어요",
+                a.text("기록 무결성 검증에서 ${r.firstBadSeq}번째 기록부터 불일치가 나왔어요. 원인을 확인한 뒤 다시 내보내세요.", 17f, C.SUB)
+                    .apply { setPadding(a.dp(24), a.dp(4), a.dp(24), 0) },
+                null,
+            ) {}
+            return
+        }
+        val input = LogbookPdf.Input(
+            year = year,
+            rows = TaxReport.logbookRows(
+                year, c.trips, c.db.setting(AppController.KEY_DEPT),
+                departmentOf = { name -> c.drivers.firstOrNull { it.name == name }?.department },
+            ),
+            summary = s, vehicle = c.gateway.info,
+            company = c.db.setting(AppController.KEY_COMPANY), bizNumber = c.db.setting(AppController.KEY_BIZNO),
+            finalHash = r.lastHash, chainCount = r.count, lastAnchor = c.anchors.maxByOrNull { it.day },
+        )
+        val bytes = LogbookPdf.build(input)
+        val fileName = "운행기록부_${year}_${stamp()}.pdf"
+        a.showPdfPreview("운행기록부 PDF 미리보기", bytes, "${input.rows.size}회 운행 · 검증 코드 ${Integrity.verifyCode(r.lastHash)}") {
+            a.saveFile(fileName, bytes, "application/pdf")
+        }
     }
 
     private fun exportLogbook(year: Int) {

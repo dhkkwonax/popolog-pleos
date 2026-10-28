@@ -580,6 +580,32 @@ class MainActivity : Activity() {
         return d
     }
 
+    /** PDF 첫 장을 그림으로 보여 주고, [onSave] 로 저장한다 */
+    fun showPdfPreview(title: String, pdf: ByteArray, caption: String, onSave: () -> Unit) {
+        val f = File(cacheDir, "preview.pdf").apply { writeBytes(pdf) }
+        val win = resources.displayMetrics
+        // 대화상자 안에 제목·버튼이 함께 들어가도록 높이 기준으로도 줄인다 (A4 가로 = 1.414:1)
+        val w = minOf((win.widthPixels * 0.9).toInt() - dp(48), ((win.heightPixels * 0.62) * 1.414).toInt())
+        val h = (w / 1.414).toInt()
+        val bmp = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888).apply { eraseColor(Color.WHITE) }
+        android.os.ParcelFileDescriptor.open(f, android.os.ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
+            android.graphics.pdf.PdfRenderer(fd).use { r ->
+                r.openPage(0).use { it.render(bmp, null, null, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY) }
+            }
+        }
+        val body = vbox {
+            setPadding(dp(24), dp(4), dp(24), 0)
+            add(android.widget.ImageView(this@MainActivity).apply {
+                setImageBitmap(bmp)
+                background = rounded(Color.WHITE, 6, C.LINE)
+                contentDescription = "운행기록부 PDF 첫 장"
+            }, w, h)
+            add(text(caption, 15f, C.SUB, tabular = true), top = 10)
+        }
+        val d = dialog(title, body, "PDF 저장", onSave)
+        d.window?.setLayout(w + dp(48), android.view.WindowManager.LayoutParams.WRAP_CONTENT)
+    }
+
     /** 대화상자의 선택지: 모두 같은 모양, 지금 값만 ✓ 와 회색 알약 테두리 */
     fun choice(label: String, current: Boolean, onClick: () -> Unit): TextView =
         button(label, BtnStyle.SECONDARY, icon = if (current) Ic.CHECK else null) { onClick() }.apply {
@@ -589,13 +615,15 @@ class MainActivity : Activity() {
     fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
 
     /** 다운로드 폴더(Download/Popolog)에 CSV 저장 */
-    fun saveCsv(fileName: String, csv: String) {
+    fun saveCsv(fileName: String, csv: String) = saveFile(fileName, csv.toByteArray(Charsets.UTF_8), "text/csv")
+
+    /** 다운로드 폴더(Download/Popolog)에 저장 */
+    fun saveFile(fileName: String, bytes: ByteArray, mime: String) {
         try {
-            val bytes = csv.toByteArray(Charsets.UTF_8)
             if (Build.VERSION.SDK_INT >= 29) {
                 val values = ContentValues().apply {
                     put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
-                    put(MediaStore.MediaColumns.MIME_TYPE, "text/csv")
+                    put(MediaStore.MediaColumns.MIME_TYPE, mime)
                     put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/Popolog")
                 }
                 val uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
@@ -607,7 +635,7 @@ class MainActivity : Activity() {
             toast("저장했어요: 다운로드/Popolog/$fileName")
         } catch (e: Exception) {
             val f = File(getExternalFilesDir(null), fileName)
-            f.writeBytes(csv.toByteArray(Charsets.UTF_8))
+            f.writeBytes(bytes)
             toast("저장했어요: ${f.absolutePath}")
         }
     }

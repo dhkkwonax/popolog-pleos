@@ -78,33 +78,14 @@ object TaxReport {
         /** 운전자마다 부서가 다르면 운행마다 그 사람의 부서를 쓴다 */
         departmentOf: (driver: String) -> String? = { null },
     ): String {
-        val ys = trips.filter { yearOf(it.startTime, tz) == year }.sortedBy { it.startTime }
-        val day = SimpleDateFormat("yyyy-MM-dd(E)", Locale.KOREAN).apply { timeZone = tz }
-        val sb = StringBuilder("﻿")
+        val sb = StringBuilder("\uFEFF")
         sb.appendLine("업무용승용차 운행기록부")
         sb.appendLine("사업연도,$year-01-01 ~ $year-12-31")
         sb.appendLine("법인명,${csv(companyName)},사업자등록번호,${csv(bizNumber)}")
         sb.appendLine("차종,${csv(vehicle.modelName)},자동차등록번호,${csv(vehicle.plateNumber)}")
         sb.appendLine()
-        sb.appendLine(
-            "사용일자(요일),부서,성명,주행 전 계기판의 거리(km),주행 후 계기판의 거리(km),주행거리(km)," +
-                "업무용 사용거리-출·퇴근용(km),업무용 사용거리-일반 업무용(km),비고",
-        )
-        for (t in ys) {
-            val commute = if (t.purpose == TripPurpose.COMMUTE) t.distanceKm else 0.0
-            val business = if (t.purpose == TripPurpose.BUSINESS) t.distanceKm else 0.0
-            val note = listOf(
-                if (t.toName.isNotEmpty()) "${t.fromName.ifEmpty { "-" }}→${t.toName}" else "",
-                if (t.purpose == TripPurpose.UNCLASSIFIED) "미분류" else "",
-                t.memo,
-            ).filter { it.isNotEmpty() }.joinToString(" / ")
-            sb.appendLine(
-                listOf(
-                    day.format(t.startTime), csv(departmentOf(t.driver) ?: department), csv(t.driver), km(t.startOdoKm), km(t.endOdoKm),
-                    km(t.distanceKm), km(commute), km(business), csv(note),
-                ).joinToString(","),
-            )
-        }
+        sb.appendLine(LOGBOOK_COLUMNS.joinToString(","))
+        for (row in logbookRows(year, trips, department, tz, departmentOf)) sb.appendLine(row.joinToString(",") { csv(it) })
         val s = summarize(year, trips, emptyList(), tz)
         sb.appendLine()
         sb.appendLine("사업연도 총주행거리(km),${km(s.totalKm)}")
@@ -112,6 +93,36 @@ object TaxReport {
         sb.appendLine("업무사용비율(%),${String.format(Locale.US, "%.1f", s.businessRatio * 100)}")
         sb.appendLine("기록 출처,차량 계기판 누적거리(Pleos Vehicle SDK Odometer) 자동 기록")
         return sb.toString()
+    }
+
+    /** 별지 제63호 운행기록부 열. CSV 와 PDF 가 같이 쓴다 */
+    val LOGBOOK_COLUMNS = listOf(
+        "사용일자(요일)", "부서", "성명", "주행 전 계기판의 거리(km)", "주행 후 계기판의 거리(km)", "주행거리(km)",
+        "업무용 사용거리-출·퇴근용(km)", "업무용 사용거리-일반 업무용(km)", "비고",
+    )
+
+    /** 운행기록부 본문 행 (CSV·PDF 공용) */
+    fun logbookRows(
+        year: Int,
+        trips: List<Trip>,
+        department: String,
+        tz: TimeZone = KST,
+        departmentOf: (driver: String) -> String? = { null },
+    ): List<List<String>> {
+        val day = SimpleDateFormat("yyyy-MM-dd(E)", Locale.KOREAN).apply { timeZone = tz }
+        return trips.filter { yearOf(it.startTime, tz) == year }.sortedBy { it.startTime }.map { t ->
+            val commute = if (t.purpose == TripPurpose.COMMUTE) t.distanceKm else 0.0
+            val business = if (t.purpose == TripPurpose.BUSINESS) t.distanceKm else 0.0
+            val note = listOf(
+                if (t.toName.isNotEmpty()) "${t.fromName.ifEmpty { "-" }}→${t.toName}" else "",
+                if (t.purpose == TripPurpose.UNCLASSIFIED) "미분류" else "",
+                t.memo,
+            ).filter { it.isNotEmpty() }.joinToString(" / ")
+            listOf(
+                day.format(t.startTime), departmentOf(t.driver) ?: department, t.driver, km(t.startOdoKm), km(t.endOdoKm),
+                km(t.distanceKm), km(commute), km(business), note,
+            )
+        }
     }
 
     val KST: TimeZone = TimeZone.getTimeZone("Asia/Seoul")

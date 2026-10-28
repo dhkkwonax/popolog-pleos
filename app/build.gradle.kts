@@ -37,5 +37,7 @@ android {
 dependencies {
     "pleosImplementation"("ai.pleos.playground:Vehicle:2.3.2")
     "pleosImplementation"("ai.pleos.playground:FusedLocation:1.1.3")
+    // 신고용 PDF 의 검증 QR (코어만, 안드로이드 의존 없음)
+    implementation("com.google.zxing:core:3.5.3")
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit:2.0.0")
 }

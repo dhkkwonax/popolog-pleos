@@ -1,5 +1,6 @@
 package ai.chagok.app.data
 
+import ai.chagok.app.core.Integrity
 import ai.chagok.app.model.ClassifiedBy
 import ai.chagok.app.model.Driver
 import ai.chagok.app.model.Expense
@@ -16,7 +17,7 @@ import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 
 /** 프레임워크 SQLite만 쓰는 저장소 (외부 라이브러리 없이 빌드하기 위해 Room 대신 사용) */
-class ChagokDb(context: Context) : SQLiteOpenHelper(context, "chagok.db", null, 1) {
+class ChagokDb(context: Context) : SQLiteOpenHelper(context, "chagok.db", null, 2) {
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
@@ -33,9 +34,21 @@ class ChagokDb(context: Context) : SQLiteOpenHelper(context, "chagok.db", null, 
                 "odo REAL, quantity REAL, memo TEXT, source TEXT, pending INTEGER)",
         )
         db.execSQL("CREATE TABLE setting (k TEXT PRIMARY KEY, v TEXT)")
+        createIntegrityTables(db)
     }
 
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+    /** v2: 위변조 검증용 해시체인(ledger)·일일 앵커(anchor). 체인은 AppController.start 가 기존 기록으로 처음 만든다 */
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 2) createIntegrityTables(db)
+    }
+
+    private fun createIntegrityTables(db: SQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE ledger (seq INTEGER PRIMARY KEY, time INTEGER, kind TEXT, ref INTEGER, payload TEXT, " +
+                "prev_hash TEXT, hash TEXT)",
+        )
+        db.execSQL("CREATE TABLE anchor (day TEXT PRIMARY KEY, seq INTEGER, hash TEXT, count INTEGER, stamped_at INTEGER, receipt TEXT)")
+    }
 
     // ---- place ----
     fun places(): List<Place> = readableDatabase.rawQuery("SELECT * FROM place ORDER BY kind, name", null).use { c ->
@@ -100,6 +113,45 @@ class ChagokDb(context: Context) : SQLiteOpenHelper(context, "chagok.db", null, 
         writableDatabase.delete("expense", "id=?", arrayOf(id.toString()))
     }
 
+    // ---- ledger (append-only) ----
+    fun ledger(): List<Integrity.Entry> = readableDatabase.rawQuery("SELECT * FROM ledger ORDER BY seq", null).use { c ->
+        c.map {
+            Integrity.Entry(
+                seq = c.long("seq"), time = c.long("time"), kind = Integrity.Kind.valueOf(c.str("kind")), ref = c.long("ref"),
+                payload = c.str("payload"), prevHash = c.str("prev_hash"), hash = c.str("hash"),
+            )
+        }
+    }
+
+    /** 덧붙이기만 한다. 같은 seq 가 이미 있으면 실패한다 */
+    fun appendLedger(e: Integrity.Entry) {
+        writableDatabase.insertOrThrow("ledger", null, ContentValues().apply {
+            put("seq", e.seq); put("time", e.time); put("kind", e.kind.name); put("ref", e.ref)
+            put("payload", e.payload); put("prev_hash", e.prevHash); put("hash", e.hash)
+        })
+    }
+
+    /** 시연용 '기록 위조해 보기' 전용: 체인 한 줄의 내용을 몰래 바꾼다 */
+    fun forgeLedgerPayload(seq: Long, payload: String) {
+        writableDatabase.update("ledger", ContentValues().apply { put("payload", payload) }, "seq=?", arrayOf(seq.toString()))
+    }
+
+    fun anchors(): List<Integrity.DailyAnchor> = readableDatabase.rawQuery("SELECT * FROM anchor ORDER BY day", null).use { c ->
+        c.map {
+            Integrity.DailyAnchor(
+                day = c.str("day"), seq = c.long("seq"), hash = c.str("hash"), count = c.int("count"),
+                stampedAt = c.long("stamped_at"), receipt = c.str("receipt"),
+            )
+        }
+    }
+
+    fun saveAnchor(a: Integrity.DailyAnchor) {
+        writableDatabase.insertWithOnConflict("anchor", null, ContentValues().apply {
+            put("day", a.day); put("seq", a.seq); put("hash", a.hash); put("count", a.count)
+            put("stamped_at", a.stampedAt); put("receipt", a.receipt)
+        }, SQLiteDatabase.CONFLICT_REPLACE)
+    }
+
     // ---- setting ----
     fun setting(key: String, default: String = ""): String =
         readableDatabase.rawQuery("SELECT v FROM setting WHERE k=?", arrayOf(key)).use { c ->
@@ -121,6 +173,7 @@ class ChagokDb(context: Context) : SQLiteOpenHelper(context, "chagok.db", null, 
     fun clearAll() {
         writableDatabase.apply {
             delete("place", null, null); delete("trip", null, null); delete("expense", null, null); delete("setting", null, null)
+            delete("ledger", null, null); delete("anchor", null, null)
         }
     }
 

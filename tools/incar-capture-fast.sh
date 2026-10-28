@@ -148,6 +148,18 @@ other=$($U dump | grep -oE "^(김도윤|박하나) · [^ ]+" | grep -v "^$cur " 
 [ -n "$other" ] || die "no other driver"
 tap "$other"; waitfor "님으로 바꿨어요"; both 07b_driver_changed
 
+# 09 위변조 검증 (세무 리포트의 '기록 무결성' 카드)
+stale; tap "=세무 리포트"; sleep 0.8; stale; has "정상" || die "무결성 정상 아님"; both 09a_integrity_ok
+# 09b 시연 오버레이 '기록 위조해 보기' → 몇 번째 기록부터 불일치인지 빨간색으로
+stale; expand; tap "기록 위조해 보기"; sleep 1; stale; fold; stale; has "불일치" || die "위조 탐지 안 됨"
+both 09b_tamper_detected
+stale; expand; tap "위조 되돌리기"; sleep 1; stale; fold; stale; has "정상" || die "되돌리기 실패"
+# 09c 운행기록부 PDF 미리보기 (검증 코드·QR)
+stale; tap "운행기록부 PDF"; waitfor "PDF 저장"; sleep 0.8; shot "09c_pdf_preview_$MODE"
+$A shell input keyevent KEYCODE_BACK; sleep 0.5; toggle
+stale; tap "운행기록부 PDF"; waitfor "PDF 저장"; sleep 0.8; shot "09c_pdf_preview_$MODE"
+$A shell input keyevent KEYCODE_BACK; sleep 0.5; stale; tap "=홈"; sleep 0.6
+
 # 2칸으로 되돌려 둔다
 [ $MODE = 1col ] && toggle
 

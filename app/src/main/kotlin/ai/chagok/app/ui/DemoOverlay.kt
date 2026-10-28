@@ -69,6 +69,17 @@ class DemoOverlay(private val a: MainActivity) {
         put(tool(Ic.SWAP, if (ev) "가솔린 차로 전환" else "전기차로 전환", !busy) {
             c.switchPowertrain(if (ev) Powertrain.ICE else Powertrain.EV)
         }, px(TOUCH), 4)
+        // 위변조 검증 시연: DB 의 지난 운행 하나를 몰래 고쳤다가 되돌린다. 결과는 세무 리포트의 '기록 무결성' 카드에서 본다
+        val forged = c.forgedSeq != null
+        put(tool(if (forged) Ic.CHECK else Ic.ALERT, if (forged) "위조 되돌리기" else "기록 위조해 보기", !busy) {
+            if (forged) c.undoForge() else c.forgeRecord()
+            a.select(MainActivity.Tab.TAX)
+        }, px(TOUCH), 4)
+        // 하루 마감: 오늘 마지막 해시를 앵커로 묶는다 (타임스탬프 기관은 시뮬레이션)
+        put(tool(Ic.SHIELD, "하루 마감 (앵커)", !busy) {
+            val made = c.closeDay()
+            a.toast(made?.let { "오늘 기록 ${it.count}건 앵커 · 시뮬레이션 타임스탬프" } ?: "오늘 기록이 아직 없어요")
+        }, px(TOUCH), 4)
         put(tool(Ic.RESET, "시연 데이터 초기화", !busy) {
             a.dialog("시연 데이터를 초기화할까요?", a.text("  지금까지의 기록을 지우고 6월 출고 이후 예시 기록을 다시 만듭니다.", 16f, C.SUB), "초기화") {
                 c.resetDemo()
