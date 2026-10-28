@@ -17,6 +17,8 @@ class SimulatedVehicle(
     startLat: Double,
     startLng: Double,
     startSeat: Int? = null,
+    /** 가상 시계가 실제보다 앞선 만큼. 다시 시동해도 시각이 뒤로 가지 않게 이어 받는다 */
+    startClockOffset: Long = 0L,
 ) : VehicleGateway {
     override val isSimulated = true
 
@@ -35,10 +37,15 @@ class SimulatedVehicle(
     var seatPosition: Int? = startSeat
         private set
     val busy: Boolean get() = route != null || energyTarget != null
+    val driving: Boolean get() = route != null
+    val refilling: Boolean get() = energyTarget != null
 
     private val handler = Handler(Looper.getMainLooper())
     private var listener: VehicleGateway.Listener? = null
-    private var clockOffset = 0L
+    private var clockOffset = startClockOffset
+
+    /** 도중 정차: 이 시각(실제 uptime)까지 제자리에 서 있는다 */
+    private var holdUntil = 0L
 
     private class Route(
         val fromLat: Double, val fromLng: Double, val toLat: Double, val toLng: Double,
@@ -96,6 +103,17 @@ class SimulatedVehicle(
         listener?.onDriverSeat(position)
     }
 
+    /**
+     * 시연: 주행 중 신호 대기·정체처럼 가상 [minutes]분 동안 계기판이 그대로인 채 서 있다가 다시 간다.
+     * 앱의 정차 타임아웃(5분)이 지나면 운행이 거기서 끊기고, 다시 출발하면 새 운행이 된다.
+     */
+    fun stopFor(minutes: Int) {
+        if (route == null) return
+        clockOffset += minutes * 60_000L
+        // 앱의 1초 주기 확인이 한 번은 돌도록 실제로도 잠깐 멈춘다
+        holdUntil = android.os.SystemClock.uptimeMillis() + 1_600L
+    }
+
     /** 주유(%) 또는 충전(SoC %)을 목표치까지 올린다 */
     fun refill(targetPercent: Double, onDone: () -> Unit = {}) {
         if (busy || !parked) return
@@ -106,6 +124,7 @@ class SimulatedVehicle(
     private fun step() {
         val l = listener ?: return
         route?.let { r ->
+            if (android.os.SystemClock.uptimeMillis() < holdUntil) return
             // 시속 60km 가정: 틱(0.25초) = 가상 30초 = 0.5km
             val stepKm = minOf(KM_PER_TICK, r.roadKm - r.progressKm)
             r.progressKm += stepKm

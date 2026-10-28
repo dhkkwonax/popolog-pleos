@@ -14,15 +14,18 @@ object GatewayFactory {
     fun create(context: Context, powertrain: Powertrain, db: ChagokDb): VehicleGateway {
         val last = db.trips().firstOrNull()
         val home = DemoSeed.HOME
+        // 시동을 끈 자리의 계기판·위치·연료 (시동 끄고 켜기·앱 끈 채 운행·앱 재시작). 한 번 쓰고 지운다
+        val st = db.setting(AppController.KEY_SIM_STATE).split(',').mapNotNull { it.toDoubleOrNull() }.takeIf { it.size == 4 }
+        db.setSetting(AppController.KEY_SIM_STATE, "")
+        val clock = db.setting(AppController.KEY_SIM_CLOCK).toLongOrNull() ?: 0L
         return SimulatedVehicle(
             info = DemoSeed.vehicle(powertrain),
-            // '앱 끈 채 운행' 시연이면 계기판만 그만큼 늘어난 채로 시동한다 (한 번 쓰고 지운다)
-            startOdoKm = db.setting(AppController.KEY_SIM_ODO).toDoubleOrNull()?.also { db.setSetting(AppController.KEY_SIM_ODO, "") }
-                ?: last?.endOdoKm ?: DemoSeed.START_ODO,
-            startLevel = if (powertrain == Powertrain.EV) 34.0 else 27.0,
-            startLat = last?.endLat ?: home.lat,
-            startLng = last?.endLng ?: home.lng,
+            startOdoKm = st?.get(0) ?: last?.endOdoKm ?: DemoSeed.START_ODO,
+            startLevel = st?.get(3) ?: if (powertrain == Powertrain.EV) 34.0 else 27.0,
+            startLat = st?.get(1) ?: last?.endLat ?: home.lat,
+            startLng = st?.get(2) ?: last?.endLng ?: home.lng,
             startSeat = db.drivers().firstOrNull { it.name == last?.driver }?.seatPosition,
+            startClockOffset = (clock - System.currentTimeMillis()).coerceAtLeast(0L),
         )
     }
 }

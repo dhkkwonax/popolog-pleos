@@ -65,6 +65,10 @@ class DemoOverlay(private val a: MainActivity) {
         put(tool(if (ev) Ic.PLUG else Ic.FUEL, if (ev) "충전하기 (→80%)" else "주유하기 (가득)", !busy) {
             sim.refill(if (ev) 80.0 else 100.0) { c.flushEnergy() }
         }, px(TOUCH), 6)
+        // 주행 중에만: 신호 대기·정체로 6분 서 있기 → 정차 5분이 넘으면 운행이 끊기고 다시 출발하면 새 운행
+        put(tool(Ic.PARKING, "도중 정차 (6분)", sim.driving) { sim.stopFor(6) }, px(TOUCH), 4)
+        // 시동 끄고 다시 켜기: 주행 중이면 그 자리에서 운행 종료, 켜면 운전자를 다시 판별
+        put(tool(Ic.CAR, "시동 끄고 다시 켜기", !sim.refilling) { c.demoRestartEngine() }, px(TOUCH), 4)
         // 차종을 바꾸면 주유 대신 충전 감지(배터리 SoC 상승)를 보여 준다
         put(tool(Ic.SWAP, if (ev) "가솔린 차로 전환" else "전기차로 전환", !busy) {
             c.switchPowertrain(if (ev) Powertrain.ICE else Powertrain.EV)

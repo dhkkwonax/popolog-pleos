@@ -160,6 +160,7 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
         if (::recorder.isInitialized) recorder.finish(gateway.now())
         // 다음 실행 때 꺼져 있던 동안의 거리를 잴 기준
         if (odoKm > 0) db.setSetting(KEY_LAST_ODO, odoKm.toString())
+        if (demo) saveSimState()
         gateway.stop()
         tts?.shutdown()
         tts = null
@@ -490,14 +491,36 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
         notifyChanged()
     }
 
-    /** 데모: 앱을 끈 채 [km] 만큼 달린 것처럼 가상 차량을 다시 붙인다 (계기판만 늘어난 채로 다시 시동) */
+    /** 데모: 앱을 끈 채 [km] 만큼(시속 40km 로) 달린 것처럼 가상 차량을 다시 붙인다 (계기판만 늘어난 채로 다시 시동) */
     fun demoOfflineDrive(km: Double) {
         if (!demo) return
         if (odoKm > 0) db.setSetting(KEY_LAST_ODO, odoKm.toString())
+        saveSimState(extraKm = km, extraMs = (km / 40.0 * 3_600_000L).toLong())
         stopGatewayOnly()
-        db.setSetting(KEY_SIM_ODO, (odoKm + km).toString())
         connectGateway()
         notifyChanged()
+    }
+
+    /**
+     * 데모: 시동을 끄고 다시 켠다. 주행 중이면 운행이 그 자리에서 끝나고, 다시 켜면 운전자를 새로 판별한다.
+     * 다른 사람이 타려면 끈 뒤 '탑승' 으로 시트를 맞춘다.
+     */
+    fun demoRestartEngine() {
+        if (!demo) return
+        if (::recorder.isInitialized) recorder.finish(gateway.now())
+        if (odoKm > 0) db.setSetting(KEY_LAST_ODO, odoKm.toString())
+        saveSimState(extraMs = 60_000L)
+        stopGatewayOnly()
+        driver = null
+        lastNotice = "시동 끔 → 다시 켬"
+        connectGateway()
+        notifyChanged()
+    }
+
+    /** 다음 가상 차량이 이어받을 계기판·위치·연료와 가상 시각 */
+    private fun saveSimState(extraKm: Double = 0.0, extraMs: Long = 0L) {
+        db.setSetting(KEY_SIM_STATE, listOf(odoKm + extraKm, lat, lng, energyPercent).joinToString(","))
+        db.setSetting(KEY_SIM_CLOCK, (gateway.now() + extraMs).toString())
     }
 
     /** 시뮬레이터에서 주유·충전이 끝났음을 알릴 때 */
@@ -632,8 +655,10 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
         const val KEY_DEPT = "dept"
         const val KEY_LAST_DRIVER = "last_driver"
         const val KEY_FORGED = "forged"
-        /** 데모: 다음 가상 차량의 시작 계기판 값 (앱 끈 채 운행 시연) */
-        const val KEY_SIM_ODO = "sim_odo"
+        /** 데모: 다음 가상 차량이 이어받을 "계기판,위도,경도,연료%" (한 번 쓰고 지운다) */
+        const val KEY_SIM_STATE = "sim_state"
+        /** 데모: 가상 시계의 마지막 시각. 다시 시동해도 시각이 뒤로 가지 않게 한다 */
+        const val KEY_SIM_CLOCK = "sim_clock"
         /** 화면 테마: auto(시스템 주야간) · day · night */
         const val KEY_THEME = "theme"
 
