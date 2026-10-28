@@ -1,4 +1,4 @@
-# Pleos Connect 에뮬레이터에서 차곡 실행·촬영하기 (미니PC)
+# Pleos Connect 에뮬레이터에서 Popolog 실행·촬영하기 (미니PC)
 
 에뮬레이터는 **Windows 쪽**에서 Intel Arc 140T GPU 로 돌리고, 빌드와 촬영 스크립트는 **WSL** 에서 돌린다.
 (WSL 안 에뮬레이터는 GPU 를 쓰지 못해 CPU 렌더링이었고 지웠다. 이유는 아래 '참고'.)
@@ -48,6 +48,8 @@ cd ~/Developments/chagok/tools
 ```
 
 - 21장(1칸 10 · 2칸 11) + 1칸 지도 합성본 10장(`*_1col_mockup.png`). Z: 에는 1칸은 합성본만 넣는다
+- 야간 홈 2장은 따로 찍는다. GPU 에뮬레이터는 앱이 뜬 상태에서 야간으로 바꾸거나 야간에 2칸으로 두면 screencap 이 지난·어긋난 화면을 돌려준다.
+  에뮬레이터를 `-gpu swiftshader_indirect` 로 새로 켠 뒤 `./incar-capture-night.sh emulator-5570 <out> <주간 촬영 폴더>` (켠 직후 야간으로 바꾸고 앱을 띄운다)
 - 기본 adb 는 Windows `adb.exe`. 다른 adb 를 쓰려면 `ADB_BIN=… ./incar-capture-fast.sh …`
 - 촬영 때만 시연 운행을 2배 빨리 감는다 (`am start --ei sim_speed 2`). 기록 결과는 실제 시연과 같다
 - GPU 모드에서 창을 나눈 뒤 옆 칸 내비가 검게 남는 장면은 같은 촬영의 기준 장면 내비 칸으로 채운다 (`NavPanePaste.java`)

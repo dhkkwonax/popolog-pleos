@@ -46,12 +46,14 @@ toggle() {
     else
         $A shell input swipe "$HANDLE_1COL" "$HY" "$((W - 10))" "$HY" 500; MODE=2col; want=0
     fi
+    ok=0
     for _ in $(seq 1 40); do
         r=$(chagok_right)
-        if [ $want = 0 ] && [ "${r:-0}" -gt $((SPLIT_X + 100)) ]; then break; fi
-        if [ $want != 0 ] && [ "${r:-0}" -le $((SPLIT_X + 5)) ] && [ "${r:-0}" -gt 0 ]; then break; fi
+        if [ $want = 0 ] && [ "${r:-0}" -gt $((SPLIT_X + 100)) ]; then ok=1; break; fi
+        if [ $want != 0 ] && [ "${r:-0}" -le $((SPLIT_X + 5)) ] && [ "${r:-0}" -gt 0 ]; then ok=1; break; fi
         sleep 0.25
     done
+    [ $ok = 1 ] || die "창 전환 실패 ($MODE)"
     # 차곡 창 왼쪽 위(누를 것이 없는 자리)를 눌러 초점을 옮긴다. 가운데를 누르면 펼친 시연 오버레이가 열린다
     focus_chagok
     sleep 0.6; stale
@@ -124,12 +126,7 @@ tap "$other"; waitfor "님으로 바꿨어요"; both 07b_driver_changed
 # 2칸으로 되돌려 둔다
 [ $MODE = 1col ] && toggle
 
-# 야간 모드 홈 (2칸 → 1칸). 바뀌는 즉시 앱과 Pleos 시스템 UI 가 함께 다시 그려진다
-$A shell input keyevent KEYCODE_BACK; sleep 0.3; stale; tap "=홈"; sleep 0.6
-$A shell cmd uimode night yes >/dev/null; sleep 4; stale
-both 08_home_night
-[ $MODE = 1col ] && toggle
-$A shell cmd uimode night no >/dev/null; sleep 2
+# 야간 모드 장면은 incar-capture-night.sh (GPU 에뮬레이터는 켜진 화면에서 야간을 바꾸면 screencap 이 깨진다)
 rm -f "$UI_CACHE"
 log "촬영 끝"
 "$HERE/map-mockup.sh" "$OUT" >/dev/null

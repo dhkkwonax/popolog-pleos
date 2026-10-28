@@ -167,12 +167,14 @@ class HomeScreen(private val a: MainActivity) {
                 )
             }, 0, WRAP, 1f)
         })
-        add(a.hbox {
-            add(a.button("말하기", BtnStyle.PRIMARY, icon = Ic.MIC) { a.askPurposeByVoice(t) }, 0, WRAP, 1f, end = 10)
-            add(a.button("일반업무") { c.classifyTrip(t.id, TripPurpose.BUSINESS, ai.chagok.app.model.ClassifiedBy.MANUAL) }, 0, WRAP, 1f, end = 10)
-            add(a.button("출퇴근") { c.classifyTrip(t.id, TripPurpose.COMMUTE, ai.chagok.app.model.ClassifiedBy.MANUAL) }, 0, WRAP, 1f, end = 10)
-            add(a.button("비업무") { c.classifyTrip(t.id, TripPurpose.PERSONAL, ai.chagok.app.model.ClassifiedBy.MANUAL) }, 0, WRAP, 1f)
-        }, top = 18)
+        val choices = listOf(
+            a.button("말하기", BtnStyle.PRIMARY, icon = Ic.MIC) { a.askPurposeByVoice(t) },
+            a.button("일반업무") { c.classifyTrip(t.id, TripPurpose.BUSINESS, ai.chagok.app.model.ClassifiedBy.MANUAL) },
+            a.button("출퇴근") { c.classifyTrip(t.id, TripPurpose.COMMUTE, ai.chagok.app.model.ClassifiedBy.MANUAL) },
+            a.button("비업무") { c.classifyTrip(t.id, TripPurpose.PERSONAL, ai.chagok.app.model.ClassifiedBy.MANUAL) },
+        )
+        // 좁은 창에서 네 칸 한 줄이면 큰 글자의 '말하기'가 '말하/기'로 꺾인다 → 2×2
+        add(a.grid(if (a.isNarrow) 2 else 4, choices, gapDp = 10), top = 18)
     }
 
     /** 차량비 카드: 왼쪽에 이번 달 차량비(가장 큰 숫자), 오른쪽 빈자리에 주행·업무사용 타일 */
