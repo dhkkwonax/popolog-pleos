@@ -124,11 +124,61 @@ class IntegrityTest {
         assertEquals(todays.size, a.count)
         assertEquals(todays.last().hash, a.hash)
         assertEquals(todays.last().seq, a.seq)
-        // 기관에 보내는 값에는 날짜와 hash 만 있다
+        // 기관에 보내는 값에는 날짜와 hash 만 있다. 처음 만든 앵커는 기관 응답 전이라 영수증이 비어 있다
         assertEquals("$day|${a.hash}", SimulatedTsa.request(a.hash, day))
-        assertTrue(SimulatedTsa.check(a.receipt, a.hash, day))
-        assertFalse(SimulatedTsa.check(a.receipt, Integrity.GENESIS, day))
+        assertEquals("", a.receipt)
+        assertTrue(Integrity.receiptOk(a))
         assertNull(Integrity.anchorFor(chain, "2000-01-01", t0))
+    }
+
+    @Test
+    fun legacySimulatedReceiptStillVerifies() {
+        val day = Integrity.dayOf(chain.first().time)
+        val a = Integrity.anchorFor(chain, day, t0)!!
+        val legacy = a.copy(receipt = SimulatedTsa.stamp(a.hash, day, t0))
+        assertTrue(Integrity.verify(chain, listOf(legacy), trips, expenses).ok)
+        assertFalse(Integrity.verify(chain, listOf(legacy.copy(receipt = legacy.receipt.replace(day, "2000-01-01"))), trips, expenses).ok)
+    }
+
+    /** freetsa.org 가 실제로 서명한 토큰 (test/resources). 서명·지문을 오프라인으로 확인한다 */
+    @Test
+    fun rfc3161TokenSignatureAndImprint() {
+        val (day, hash, receipt) = javaClass.getResource("/freetsa-anchor.txt")!!.readText().trim().lines()
+        val st = Rfc3161.check(receipt, hash, day)!!
+        assertTrue(st.tsa.contains("freetsa", ignoreCase = true))
+        assertEquals("2026-10-28", Integrity.dayOf(st.time))
+        // 다른 hash·날짜에는 맞지 않는다
+        assertNull(Rfc3161.check(receipt, Integrity.GENESIS, day))
+        assertNull(Rfc3161.check(receipt, hash, "2026-10-26"))
+        // 토큰을 한 글자라도 바꾸면 서명이 깨진다
+        val b64 = receipt.substringAfterLast('|')
+        val i = b64.length / 2
+        val flipped = receipt.substringBeforeLast('|') + "|" + b64.substring(0, i) + (if (b64[i] == 'A') 'B' else 'A') + b64.substring(i + 1)
+        assertNull(Rfc3161.check(flipped, hash, day))
+        assertEquals("freetsa.org", Rfc3161.host(receipt))
+    }
+
+    @Test
+    fun memoIsChainedButOldV1LinesStillMatch() {
+        val t = trips[0].copy(memo = "거래처 미팅")
+        assertNotEquals(Integrity.canonical(t), Integrity.canonical(t.copy(memo = "개인 용무")))
+        // v1 줄(메모 없음)은 메모가 있어도 v1 규칙으로 대조한다
+        val v1 = Integrity.canonical(t, 1)
+        assertTrue(v1.startsWith("trip|"))
+        assertTrue(Integrity.matches(v1, t))
+        assertFalse(Integrity.matches(Integrity.canonical(t.copy(memo = "x")), t))
+        val e = expenses[0].copy(memo = "현금")
+        assertTrue(Integrity.matches(Integrity.canonical(e, 1), e))
+        assertFalse(Integrity.matches(Integrity.canonical(e.copy(memo = "카드")), e))
+    }
+
+    @Test
+    fun exportJsonHasEveryEntryAndAnchor() {
+        val a = Integrity.anchorFor(chain, Integrity.dayOf(chain.last().time), t0)!!
+        val json = Integrity.exportJson(chain, listOf(a))
+        assertEquals(chain.size, Regex("\\\"seq\\\":").findAll(json.substringBefore("\"anchors\"")).count())
+        assertTrue(json.contains(chain.last().hash))
+        assertTrue(json.contains("\"day\":\"${a.day}\""))
     }
 
     @Test

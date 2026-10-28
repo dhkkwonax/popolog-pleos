@@ -102,10 +102,10 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         setTheme(android.R.style.Theme_Material_NoActionBar)
         super.onCreate(savedInstanceState)
+        controller = AppController(this)
         applyDayNight()
         // 스크린샷 자동 촬영용 빨리 감기 (am start --ei sim_speed N). 가상 차량에만 영향
         ai.chagok.app.vehicle.SimulatedVehicle.timeScale = intent.getIntExtra("sim_speed", 1).coerceIn(1, 8)
-        controller = AppController(this)
         buildShell()
         controller.addListener(onChanged)
         requestCarPermissions()
@@ -147,8 +147,15 @@ class MainActivity : Activity() {
         render()
     }
 
+    /** 설정의 화면 테마: 자동(시스템 주야간 신호) · 주간 · 야간 */
     private fun applyDayNight() {
-        C.use(C.isNight(this))
+        C.use(
+            when (controller.db.setting(AppController.KEY_THEME, THEME_AUTO)) {
+                THEME_DAY -> false
+                THEME_NIGHT -> true
+                else -> C.isNight(this)
+            },
+        )
         window.statusBarColor = C.BG
         window.navigationBarColor = C.BG
         window.setBackgroundDrawable(ColorDrawable(C.BG))
@@ -158,6 +165,14 @@ class MainActivity : Activity() {
         controller.removeListener(onChanged)
         controller.stop()
         super.onDestroy()
+    }
+
+    /** 테마를 바꾸고 바로 다시 그린다 */
+    fun applyThemeMode(mode: String) {
+        controller.db.setSetting(AppController.KEY_THEME, mode)
+        applyDayNight()
+        buildShell()
+        render()
     }
 
     private fun isWide() = resources.displayMetrics.widthPixels > resources.displayMetrics.heightPixels
@@ -554,7 +569,7 @@ class MainActivity : Activity() {
      * 앱과 같은 어두운 표면의 대화상자. 시스템 밝은 대화상자는 차량 화면에서 따로 놀았다.
      * 채운 버튼은 [positive] 하나뿐이고, 닫기는 글자 버튼이다.
      */
-    fun dialog(title: String, body: View, positive: String?, onOk: () -> Unit): Dialog {
+    fun dialog(title: String, body: View, positive: String?, extra: List<Pair<String, () -> Unit>> = emptyList(), onOk: () -> Unit): Dialog {
         val d = Dialog(this)
         d.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
         val panel = vbox {
@@ -565,6 +580,10 @@ class MainActivity : Activity() {
             add(hbox(Gravity.END or Gravity.CENTER_VERTICAL) {
                 setPadding(dp(24), dp(16), dp(24), 0)
                 add(button("닫기", BtnStyle.GHOST) { d.dismiss() }, WRAP, WRAP)
+                for ((label, run) in extra) {
+                    add(button(label, BtnStyle.SECONDARY) { run() }, WRAP, WRAP)
+                        .also { (it.layoutParams as LinearLayout.LayoutParams).marginStart = dp(10) }
+                }
                 if (positive != null) {
                     add(button(positive, BtnStyle.PRIMARY) { d.dismiss(); onOk() }, WRAP, WRAP)
                         .also { (it.layoutParams as LinearLayout.LayoutParams).marginStart = dp(10) }
@@ -581,7 +600,7 @@ class MainActivity : Activity() {
     }
 
     /** PDF 첫 장을 그림으로 보여 주고, [onSave] 로 저장한다 */
-    fun showPdfPreview(title: String, pdf: ByteArray, caption: String, onSave: () -> Unit) {
+    fun showPdfPreview(title: String, pdf: ByteArray, caption: String, extra: List<Pair<String, () -> Unit>> = emptyList(), onSave: () -> Unit) {
         val f = File(cacheDir, "preview.pdf").apply { writeBytes(pdf) }
         val win = resources.displayMetrics
         // 대화상자 안에 제목·버튼이 함께 들어가도록 높이 기준으로도 줄인다 (A4 가로 = 1.414:1)
@@ -602,8 +621,28 @@ class MainActivity : Activity() {
             }, w, h)
             add(text(caption, 15f, C.SUB, tabular = true), top = 10)
         }
-        val d = dialog(title, body, "PDF 저장", onSave)
+        val d = dialog(title, body, "PDF 저장", extra, onSave)
         d.window?.setLayout(w + dp(48), android.view.WindowManager.LayoutParams.WRAP_CONTENT)
+    }
+
+    /**
+     * QR 이 여는 검증 페이지(assets/verify.html)를 앱 안에서 연다. QR 값은 주소 뒤(#)로, 검증 파일은 페이지에 바로 넘긴다.
+     * 페이지는 체인을 처음부터 다시 계산해 QR 의 최종 해시·건수와, 앵커의 타임스탬프 지문과 대조한다.
+     */
+    fun showVerifyPage(qr: String, ledgerJson: String) {
+        val web = android.webkit.WebView(this)
+        web.settings.javaScriptEnabled = true
+        web.webViewClient = object : android.webkit.WebViewClient() {
+            override fun onPageFinished(view: android.webkit.WebView, url: String) {
+                view.evaluateJavascript("window.loadLedger(" + org.json.JSONObject.quote(ledgerJson) + ")", null)
+            }
+        }
+        web.loadUrl("file:///android_asset/verify.html#" + qr.substringAfter('?') + "&night=" + (if (C.night) 1 else 0))
+        val win = resources.displayMetrics
+        val d = dialog("검증 페이지", web, null) {}
+        val w = minOf(dp(900), (win.widthPixels * 0.9).toInt())
+        web.layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, (win.heightPixels * 0.62).toInt())
+        d.window?.setLayout(w, android.view.WindowManager.LayoutParams.WRAP_CONTENT)
     }
 
     /** 대화상자의 선택지: 모두 같은 모양, 지금 값만 ✓ 와 회색 알약 테두리 */
@@ -657,6 +696,9 @@ class MainActivity : Activity() {
         private const val REQ_VOICE = 41
         private const val REQ_CAR_PERMISSIONS = 42
         private const val KEY_OVERLAY_POS = "demo_overlay_pos"
+        const val THEME_AUTO = "auto"
+        const val THEME_DAY = "day"
+        const val THEME_NIGHT = "night"
 
         /** Pleos 빌드에서 런타임 승인이 필요한 권한 (시뮬레이터 빌드는 선언하지 않아 건너뛴다) */
         private val CAR_PERMISSIONS = listOf(

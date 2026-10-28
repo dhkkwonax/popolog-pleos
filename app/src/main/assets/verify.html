@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Popolog 기록 검증</title>
+<style>
+:root { --bg:#F3F4F6; --surface:#FFFFFF; --line:#DDE0E5; --text:#15171A; --sub:#454B54; --dim:#5B626C; --ok:#1D7A43; --bad:#B42318; --accent:#2F5FC4; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#0B0C0E; --surface:#17191C; --line:#2C2F34; --text:#F2F3F5; --sub:#B9BEC6; --dim:#979DA6; --ok:#5BD08A; --bad:#F87171; --accent:#86AAF2; } }
+:root[data-theme="dark"] { --bg:#0B0C0E; --surface:#17191C; --line:#2C2F34; --text:#F2F3F5; --sub:#B9BEC6; --dim:#979DA6; --ok:#5BD08A; --bad:#F87171; --accent:#86AAF2; }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--text); font:16px/1.5 system-ui, -apple-system, "Noto Sans KR", sans-serif; }
+main { max-width:860px; margin:0 auto; padding:20px 16px 40px; }
+h1 { font-size:22px; margin:0 0 4px; }
+.lead { color:var(--sub); margin:0 0 18px; }
+.card { background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:16px 18px; margin-top:12px; }
+.row { display:flex; gap:12px; align-items:flex-start; padding:8px 0; border-top:1px solid var(--line); }
+.row:first-of-type { border-top:0; }
+.mark { flex:0 0 26px; font-weight:700; text-align:center; }
+.ok { color:var(--ok); } .bad { color:var(--bad); } .wait { color:var(--dim); }
+.k { font-weight:600; } .v { color:var(--sub); font-size:14px; word-break:break-all; }
+code { font:13px/1.45 ui-monospace, Menlo, monospace; }
+.code { font:600 20px ui-monospace, Menlo, monospace; letter-spacing:.04em; }
+label.file { display:inline-block; margin-top:10px; padding:10px 14px; border:1px solid var(--line); border-radius:10px; cursor:pointer; color:var(--accent); }
+input[type=file] { display:none; }
+.note { color:var(--dim); font-size:13px; margin-top:10px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>운행기록부 기록 검증</h1>
+  <p class="lead">PDF 의 QR 값과 검증 파일(체인)을 이 기기 안에서 다시 계산해 대조합니다. 어디에도 업로드하지 않습니다.</p>
+
+  <section class="card">
+    <div class="k">QR 에 담긴 값</div>
+    <div id="qr" class="v">QR 값이 없습니다. PDF 의 QR 로 열거나 앱의 '검증 페이지'로 여세요.</div>
+  </section>
+
+  <section class="card">
+    <div class="k">검사 결과</div>
+    <div id="checks"><div class="row"><span class="mark wait">…</span><div><div class="k">검증 파일을 기다리는 중</div>
+      <div class="v">앱의 '검증 파일 저장'으로 받은 JSON 을 고르세요.</div>
+      <label class="file">검증 파일 고르기<input id="file" type="file" accept="application/json,.json"></label></div></div></div>
+  </section>
+
+  <section class="card">
+    <div class="k">타임스탬프 서명 직접 확인</div>
+    <div class="v">이 페이지는 기관 토큰의 지문·시각을 대조합니다. 토큰 서명은 앱이 기관 인증서로 확인하며, 아래처럼 openssl 로도 다시 확인할 수 있습니다.</div>
+    <pre class="v"><code>openssl ts -verify -digest &lt;지문&gt; -in token.tsr -token_in -CAfile tsa-ca.pem</code></pre>
+  </section>
+  <p class="note" id="foot"></p>
+</main>
+<script>
+// ---- SHA-256 (UTF-8) ----
+const K = new Uint32Array([0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2]);
+function sha256Bytes(msg) {
+  const len = msg.length, n = ((len + 9 + 63) >> 6) << 6, b = new Uint8Array(n);
+  b.set(msg); b[len] = 0x80;
+  const bits = len * 8; new DataView(b.buffer).setUint32(n - 4, bits >>> 0); new DataView(b.buffer).setUint32(n - 8, Math.floor(bits / 2 ** 32));
+  const H = new Uint32Array([0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19]), w = new Uint32Array(64), dv = new DataView(b.buffer);
+  const r = (x, k) => (x >>> k) | (x << (32 - k));
+  for (let o = 0; o < n; o += 64) {
+    for (let i = 0; i < 16; i++) w[i] = dv.getUint32(o + i * 4);
+    for (let i = 16; i < 64; i++) {
+      const s0 = r(w[i-15],7) ^ r(w[i-15],18) ^ (w[i-15] >>> 3), s1 = r(w[i-2],17) ^ r(w[i-2],19) ^ (w[i-2] >>> 10);
+      w[i] = (w[i-16] + s0 + w[i-7] + s1) >>> 0;
+    }
+    let [a,bb,c,d,e,f,g,h] = H;
+    for (let i = 0; i < 64; i++) {
+      const t1 = (h + (r(e,6) ^ r(e,11) ^ r(e,25)) + ((e & f) ^ (~e & g)) + K[i] + w[i]) >>> 0;
+      const t2 = ((r(a,2) ^ r(a,13) ^ r(a,22)) + ((a & bb) ^ (a & c) ^ (bb & c))) >>> 0;
+      h = g; g = f; f = e; e = (d + t1) >>> 0; d = c; c = bb; bb = a; a = (t1 + t2) >>> 0;
+    }
+    H[0]+=a; H[1]+=bb; H[2]+=c; H[3]+=d; H[4]+=e; H[5]+=f; H[6]+=g; H[7]+=h;
+  }
+  const out = new Uint8Array(32); for (let i = 0; i < 8; i++) new DataView(out.buffer).setUint32(i * 4, H[i]); return out;
+}
+const utf8 = s => new TextEncoder().encode(s);
+const hex = u => Array.from(u, x => x.toString(16).padStart(2, "0")).join("");
+const sha256 = s => hex(sha256Bytes(utf8(s)));
+
+// ---- DER: RFC 3161 토큰에서 지문과 시각만 꺼낸다 ----
+function der(buf, p) {
+  const tag = buf[p]; let len = buf[p + 1], h = 2;
+  if (len & 0x80) { const k = len & 0x7f; len = 0; for (let i = 0; i < k; i++) len = len * 256 + buf[p + 2 + i]; h = 2 + k; }
+  return { tag, start: p + h, end: p + h + len, next: p + h + len };
+}
+function kids(buf, n) { const out = []; let p = n.start; while (p < n.end) { const c = der(buf, p); out.push(c); p = c.next; } return out; }
+function tstInfo(b64) {
+  const buf = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+  const ci = der(buf, 0), sd = kids(buf, kids(buf, ci)[1])[0];       // ContentInfo → [0] → SignedData
+  const encap = kids(buf, sd)[2];                                     // version, digestAlgorithms, encapContentInfo
+  const eContent = kids(buf, kids(buf, encap)[1])[0];                 // [0] → OCTET STRING
+  const tst = der(buf, eContent.start), f = kids(buf, tst);           // TSTInfo
+  const mi = kids(buf, f[2]), digest = buf.slice(mi[1].start, mi[1].end);
+  const gt = new TextDecoder().decode(buf.slice(f[4].start, f[4].end)); // yyyyMMddHHmmss[.f]Z
+  const when = new Date(Date.UTC(+gt.slice(0,4), +gt.slice(4,6) - 1, +gt.slice(6,8), +gt.slice(8,10), +gt.slice(10,12), +gt.slice(12,14)));
+  return { digest: hex(digest), when };
+}
+
+// ---- 화면 ----
+const params = Object.fromEntries(new URLSearchParams((location.hash || location.search).replace(/^[#?]/, "")));
+if (params.night === "1") document.documentElement.dataset.theme = "dark";
+if (params.night === "0") document.documentElement.dataset.theme = "light";
+const code = h => h ? h.slice(0, 16).toUpperCase().match(/.{4}/g).join("-") : "-";
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]));
+const kst = d => new Date(d.getTime() + 9 * 3600e3).toISOString().slice(0, 16).replace("T", " ") + " (KST)";
+if (params.h) {
+  document.getElementById("qr").innerHTML =
+    `<div class="code">${code(params.h)}</div>` +
+    `<div class="v">기간 ${esc(params.p || "-")} · 운행 ${esc(params.n || "-")}건 · 체인 ${esc(params.c || "-")}줄 · 최종 앵커 ${esc(params.a || "없음")}${params.demo ? " · 데모 모드 기록" : ""}</div>` +
+    `<div class="v"><code>${esc(params.h)}</code></div>`;
+}
+function row(state, title, detail) {
+  const m = { ok: "✓", bad: "✕", wait: "–" }[state];
+  return `<div class="row"><span class="mark ${state}">${m}</span><div><div class="k">${esc(title)}</div><div class="v">${detail}</div></div></div>`;
+}
+window.loadLedger = function (text) {
+  const L = typeof text === "string" ? JSON.parse(text) : text, out = [];
+  // 1. 체인을 처음부터 다시 계산
+  let prev = L.genesis, bad = null; const at = {};
+  L.entries.forEach((e, i) => {
+    if (bad) return;
+    const h = sha256(prev + "\n" + e.kind + "\n" + e.payload);
+    if (e.seq !== i + 1 || e.prev !== prev || e.hash !== h) bad = e.seq;
+    at[e.seq] = h; prev = h;
+  });
+  out.push(bad ? row("bad", `${bad}번째 줄부터 체인 불일치`, "이 줄의 내용이나 순서가 바뀌어 뒤의 해시가 모두 달라졌어요")
+               : row("ok", `체인 ${L.entries.length.toLocaleString()}줄 모두 다시 계산해 일치`, `최종 해시 <code>${esc(prev)}</code>`));
+  // 2. QR 과 대조
+  if (params.h) {
+    const same = !bad && prev === params.h && String(L.entries.length) === params.c;
+    out.push(same ? row("ok", "PDF 의 QR 과 일치", `검증 코드 ${code(prev)} · 체인 ${params.c}줄`)
+                  : row("bad", "PDF 의 QR 과 다름", `QR ${code(params.h)} (${esc(params.c)}줄) · 파일 ${code(prev)} (${L.entries.length}줄)`));
+    // 그해 운행 건수: 운행마다 마지막 줄의 출발 시각(세 번째 칸)으로 센다
+    const year = (params.p || "").slice(0, 4), last = {};
+    L.entries.forEach(e => { if (e.kind.startsWith("TRIP")) last[e.ref] = e.payload; });
+    const n = Object.values(last).filter(p => new Date(+p.split("|")[2] + 9 * 3600e3).getUTCFullYear() === +year).length;
+    if (year) out.push(String(n) === params.n ? row("ok", `${year}년 운행 ${n}건 · PDF 행 수와 일치`, "운행마다 체인의 마지막 기록 기준")
+                                            : row("bad", `${year}년 운행 수가 PDF 와 다름`, `체인 ${n}건 · PDF ${esc(params.n)}건`));
+  }
+  // 3. 일일 앵커와 기관 타임스탬프
+  let signed = 0, anchorBad = null, last = null;
+  for (const a of L.anchors) {
+    if (at[a.seq] !== a.hash) { anchorBad = a.day; break; }
+    if (a.receipt.startsWith("RFC3161|")) {
+      const [, url, b64] = a.receipt.split("|");
+      try {
+        const t = tstInfo(b64), want = hex(sha256Bytes(utf8(a.day + "|" + a.hash)));
+        if (t.digest !== want) { anchorBad = a.day; break; }
+        signed++; last = { day: a.day, when: t.when, host: new URL(url).host };
+      } catch (e) { anchorBad = a.day; break; }
+    }
+  }
+  if (anchorBad) out.push(row("bad", `${anchorBad} 앵커와 체인이 다름`, "그날 이후 기록을 통째로 다시 만들었거나 토큰이 맞지 않아요"));
+  else if (last) out.push(row("ok", `일일 앵커 ${L.anchors.length}개 일치 · 기관 타임스탬프 ${signed}개`,
+    `마지막 ${esc(last.day)} 기록은 ${esc(last.host)} 가 ${kst(last.when)} 에 서명 (RFC 3161, 지문 = SHA-256("날짜|해시"))`));
+  else out.push(row("wait", `일일 앵커 ${L.anchors.length}개 일치 · 기관 타임스탬프 없음`, "기관 응답 전이거나 오프라인이었어요"));
+  document.getElementById("checks").innerHTML = out.join("");
+  document.getElementById("foot").textContent = `검증 파일 형식 ${L.format} · 해시 규칙 ${L.hashRule}`;
+};
+document.getElementById("file")?.addEventListener("change", ev => {
+  const f = ev.target.files[0]; if (!f) return;
+  f.text().then(t => { try { window.loadLedger(t); } catch (e) { alert("검증 파일을 읽지 못했어요"); } });
+});
+</script>
+</body>
+</html>

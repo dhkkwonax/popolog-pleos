@@ -31,29 +31,45 @@ until [ "$($WA -s emulator-5570 shell getprop sys.boot_completed 2>/dev/null | t
 - `-gpu angle_indirect` 는 GPU 가 아니라 SwiftShader(CPU)로 떨어지므로 쓰지 않는다
 - 끄기: `$WA -s emulator-5570 emu kill`
 
-## 빌드·설치
+## 빌드·설치 (두 가지 모드)
+
+빌드 옵션(product flavor)으로 모드를 고른다. 두 APK 는 패키지 이름이 같아(`ai.chagok.app`) 하나만 깔린다.
+
+| 모드 | 빌드 | 동작 |
+|---|---|---|
+| 데모 모드 `demo` | `./gradlew assembleDemoDebug` → `app/build/outputs/apk/demo/debug/app-demo-debug.apk` | 가상 차량·가상 시계(주행 중 빨리 흐름)·시연 오버레이·6월 이후 예시 데이터 |
+| 실제 동작 모드 `real` | `./gradlew assembleRealDebug` → `app/build/outputs/apk/real/debug/app-real-debug.apk` | Pleos Vehicle·FusedLocation SDK 값만 쓴다. 예시 데이터·시연 컨트롤 없음, 운전자·장소는 앱에서 등록 |
+
+두 모드 공통: RFC 3161 타임스탬프(freetsa.org, 실패하면 sectigo)·검증 페이지·검증 파일·앱 꺼짐 거리 보정·메모 체인·화면 테마(설정).
+코드에서는 `BuildConfig.DEMO` 로 나뉜다. 빌드는 처음 한 번 인터넷이 필요하다(BouncyCastle 내려받기, 그 뒤 `--offline` 가능).
 
 ```bash
 export JAVA_HOME=~/opt/jdk-17.0.21+9
 cd ~/Developments/chagok/app-studio
-./gradlew assembleSimDebug        # 시뮬레이터(가상 차량, 시연 오버레이)
-./gradlew assemblePleosDebug      # 실제 Pleos SDK
-cp app/build/outputs/apk/sim/debug/app-sim-debug.apk /mnt/c/Android/dl/
-$WA -s emulator-5570 install -r 'C:\Android\dl\app-sim-debug.apk'   # Windows adb 는 Windows 경로로 준다
-$WA -s emulator-5570 shell pm grant --user current ai.chagok.app pleos.car.permission.FUSED_LOCATION
+./gradlew assembleDemoDebug assembleRealDebug
+cp app/build/outputs/apk/demo/debug/app-demo-debug.apk app/build/outputs/apk/real/debug/app-real-debug.apk /mnt/c/Android/dl/
+$WA -s emulator-5570 install -r 'C:\Android\dl\app-demo-debug.apk'   # 또는 app-real-debug.apk. Windows adb 는 Windows 경로로 준다
+# 모드를 바꿔 깔면 앞 모드의 기록이 남으므로 지운다
+$WA -s emulator-5570 shell pm clear --user current ai.chagok.app
+# 실제 동작 모드는 차량 권한 창이 뜬다. 촬영·시험에서는 미리 승인해 둔다
+for p in FUSED_LOCATION CAR_MILEAGE CAR_ENERGY CAR_INFO CAR_DRIVE CAR_SEATS CAR_POWERTRAIN; do
+  $WA -s emulator-5570 shell pm grant --user current ai.chagok.app pleos.car.permission.$p; done
 ```
+
+에뮬레이터에서 실제 동작 모드를 켜면: 배터리 SoC(100%)·차량 정보는 SDK 에서 읽힌다. Virtual Console 이 값 쓰기를 막아(`emulator_inactive`)
+계기판·기어 값이 바뀌지 않으므로 운행·주유 기록은 생기지 않는다. 그 흐름은 데모 모드로 보여 준다.
 
 ## 시연 자동 촬영 (GPU 창 모드, 주간 약 2분 30초 + 야간 약 1분)
 
 ```bash
-cd ~/Developments/chagok/tools
+cd ~/Developments/chagok/app-studio/tools   # osm-tiles 는 ~/Developments/chagok/tools/osm-tiles 를 링크
 D=~/Developments/chagok/screenshots-$(date +%Y%m%d-%H%M%S)
 ./emu-restart.sh gpu && ./incar-capture-fast.sh emulator-5570 $D
 ./emu-restart.sh gpu && ./incar-capture-night.sh emulator-5570 $D-night $D   # 켠 직후 야간으로 바꾸고 앱을 띄운다
 # 미니PC 화면을 쓸 수 없을 때(창을 못 띄울 때)는 gpu 대신 cpu 로 켜고 SIM_SPEED=1 DOUBLE=1 ./incar-capture-fast.sh …
 ```
 
-- 주간 27장(1칸 13 · 2칸 14, 09a~c 위변조 검증 장면 포함) + 1칸 지도 합성본, 야간 홈 2장(+1칸 합성본). Z: 에는 1칸은 합성본만 넣는다
+- 데모 APK 를 깔고 찍는다. 주간 35장(1칸 17 · 2칸 18: 09a~d 위변조 검증·검증 페이지, 10 앱 꺼짐 보정, 11 화면 테마 포함, 인터넷 필요) + 1칸 지도 합성본, 야간 홈 2장(+1칸 합성본). Z: 에는 1칸은 합성본만 넣는다
 - 찍기 전에 dumpsys 로 앱 창의 실제 bounds 를 읽어 파일 이름의 `_1col`/`_2col` 과 맞을 때만 찍는다
 - `DOUBLE=1` 이면 0.7초 간격으로 두 번 찍어 같을 때만 저장한다(CPU 모드용). GPU 창 모드는 지난 화면이 찍히지 않아 기본은 끔
 - 운행 장면은 앱이 logcat 에 남기는 `trip started`/`trip ended` 로 확인한다. 시작을 본 뒤 2칸·1칸을 찍고, 그때까지 운행이 끝나지 않았는지 본다.

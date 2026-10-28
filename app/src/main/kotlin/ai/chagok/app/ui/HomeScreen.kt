@@ -59,11 +59,15 @@ class HomeScreen(private val a: MainActivity) {
         val d = c.driver
         add(a.icon(Ic.PERSON, C.SUB, 26), WRAP, WRAP, end = 14)
         add(a.vbox {
-            add(a.text(d?.driver?.name ?: "운전자 확인 중", 20f, bold = true, lines = 1))
+            // 실제 동작 모드는 예시 운전자가 없어, 아무도 등록하지 않았으면 설정으로 안내한다
+            val none = c.drivers.isEmpty()
+            add(a.text(d?.driver?.name ?: if (none) "운전자 미등록" else "운전자 확인 중", 20f, bold = true, lines = 1))
+            if (d == null && none) add(a.text("설정에서 운전자를 추가하세요", 14f, C.SUB, lines = 1), top = 4)
             // "직접 선택" 은 받침이 있어 "~로 인식" 이 어색하다. 직접 고른 경우는 그대로 적는다
             if (d != null) add(a.text(if (d.method == DriverMethod.MANUAL) "직접 선택" else d.method.label + "로 인식", 14f, C.SUB, lines = 1), top = 4)
         }, 0, WRAP, 1f, end = 12)
-        add(a.button("바꾸기", BtnStyle.SECONDARY) { a.pickDriver() }.apply { contentDescription = "운전자 바꾸기" }, WRAP, WRAP)
+        if (c.drivers.isEmpty()) add(a.button("추가", BtnStyle.SECONDARY) { a.select(MainActivity.Tab.SETTINGS) }, WRAP, WRAP)
+        else add(a.button("바꾸기", BtnStyle.SECONDARY) { a.pickDriver() }.apply { contentDescription = "운전자 바꾸기" }, WRAP, WRAP)
     }
 
     /** P 주차 / 누적 km / 연료(배터리) % — 숫자는 크게, 단위·뜻은 라벨로 */
@@ -119,7 +123,7 @@ class HomeScreen(private val a: MainActivity) {
         val d = c.driver
         val how = d?.let {
             val by = if (it.method == DriverMethod.MANUAL) "직접 선택으로 바꿈" else "${it.method.label}로 인식"
-            "$by · ${it.driver.department}"
+            listOf(by, it.driver.department).filter { s -> s.isNotEmpty() }.joinToString(" · ")
         }.orEmpty()
         val change = a.button("다른 분이에요", BtnStyle.SECONDARY) { a.pickDriver() }
         add(a.hbox {
@@ -157,10 +161,11 @@ class HomeScreen(private val a: MainActivity) {
         add(a.hbox {
             add(a.icon(Ic.CAR, C.AMBER, 28), WRAP, WRAP, end = 16)
             add(a.vbox {
-                add(a.text("${AppController.fmtKm(t.distanceKm)} 운행 · 업무였나요?", 22f, bold = true))
+                val gap = t.memo == AppController.GAP_MEMO
+                add(a.text("${if (gap) "앱이 꺼진 동안 " else ""}${AppController.fmtKm(t.distanceKm)} 운행 · 업무였나요?", 22f, bold = true))
                 add(
                     a.text(
-                        "${t.fromName.ifEmpty { "출발지" }} → ${t.toName.ifEmpty { "등록되지 않은 장소" }} · 계기판 ${AppController.fmt1(t.startOdoKm)} → ${AppController.fmt1(t.endOdoKm)} km",
+                        (if (gap) "계기판으로 보정 · " else "${t.fromName.ifEmpty { "출발지" }} → ${t.toName.ifEmpty { "등록되지 않은 장소" }} · ") + "계기판 ${AppController.fmt1(t.startOdoKm)} → ${AppController.fmt1(t.endOdoKm)} km",
                         16f, C.SUB,
                     ),
                     top = 6,

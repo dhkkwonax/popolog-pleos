@@ -1,7 +1,7 @@
 package ai.chagok.app.ui
 
 import ai.chagok.app.core.Integrity
-import ai.chagok.app.core.SimulatedTsa
+import ai.chagok.app.core.Rfc3161
 import ai.chagok.app.core.TaxReport
 import ai.chagok.app.core.TaxSummary
 import ai.chagok.app.model.VehicleInfo
@@ -24,7 +24,7 @@ import java.util.Locale
  * 인쇄용이라 화면 테마와 상관없이 흰 바탕에 검정 글자다.
  */
 object LogbookPdf {
-    /** 데모용 자리표시 주소. 실제 검증 서비스는 아직 없다 */
+    /** 검증 페이지 주소. 같은 페이지가 앱에도 들어 있다 (assets/verify.html, PDF 미리보기의 '검증 페이지') */
     const val VERIFY_URL = "https://verify.popolog.app/v1"
 
     data class Input(
@@ -43,7 +43,7 @@ object LogbookPdf {
     /** QR 에 담는 검증용 데이터 (최종 hash·기간·건수·앵커). 주소는 데모용 자리표시 */
     fun qrText(i: Input): String =
         "$VERIFY_URL?h=${i.finalHash}&p=${i.year}0101-${i.year}1231&n=${i.rows.size}&c=${i.chainCount}" +
-            (i.lastAnchor?.let { "&a=${it.day}" } ?: "") + "&demo=1"
+            (i.lastAnchor?.let { "&a=${it.day}" } ?: "") + if (ai.chagok.app.BuildConfig.DEMO) "&demo=1" else ""
 
     private const val W = 842 // A4 가로 (pt)
     private const val H = 595
@@ -101,8 +101,9 @@ object LogbookPdf {
         val small = paint(8.5f)
         c.drawText("기간 ${i.year}-01-01 ~ ${i.year}-12-31 · 운행 ${i.rows.size}건 · 체인 ${i.chainCount}줄", tx, top + 60, small)
         c.drawText("최종 앵커 $anchor", tx, top + 74, small)
-        c.drawText("(${SimulatedTsa.NAME})", tx, top + 86, small)
-        c.drawText("QR 검증 주소는 데모용 자리표시입니다", tx, top + 98, paint(8.5f, color = Color.rgb(90, 90, 90)))
+        val tsa = i.lastAnchor?.receipt?.takeIf { Rfc3161.isSigned(it) }?.let { "RFC 3161 타임스탬프 · ${Rfc3161.host(it)}" } ?: "기관 타임스탬프 대기"
+        c.drawText("($tsa)", tx, top + 86, small)
+        c.drawText("검증 파일로 체인을 다시 계산할 수 있습니다", tx, top + 98, paint(8.5f, color = Color.rgb(90, 90, 90)))
         return M + 44f + lines.size * 16 + 18
     }
 

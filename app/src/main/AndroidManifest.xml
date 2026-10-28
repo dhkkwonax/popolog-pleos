@@ -18,6 +18,9 @@
     <uses-permission android:name="pleos.car.permission.STT_SERVICE" />
     <uses-permission android:name="pleos.car.permission.TTS_SERVICE" />
 
+    <!-- 일일 앵커의 RFC 3161 타임스탬프 요청 (날짜와 해시의 지문만 보낸다) -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <application
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"

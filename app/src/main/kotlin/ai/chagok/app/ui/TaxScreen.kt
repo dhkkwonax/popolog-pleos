@@ -3,7 +3,7 @@ package ai.chagok.app.ui
 import ai.chagok.app.AppController
 import ai.chagok.app.MainActivity
 import ai.chagok.app.core.Integrity
-import ai.chagok.app.core.SimulatedTsa
+import ai.chagok.app.core.Rfc3161
 import ai.chagok.app.core.TaxReport
 import ai.chagok.app.core.TaxSummary
 import ai.chagok.app.model.ExpenseCategory
@@ -207,7 +207,7 @@ class TaxScreen(private val a: MainActivity) {
                     ),
                     top = 6,
                 )
-                add(a.text("타임스탬프: ${SimulatedTsa.NAME} · 외부에는 날짜와 해시만 보냄", 14f, C.DIM), top = 4)
+                add(a.text(tsaLine(anchor), 14f, if (anchor != null && Rfc3161.isSigned(anchor.receipt)) C.SUB else C.DIM), top = 4)
             } else {
                 val what = when {
                     r.badKind?.isTrip == true -> c.trips.firstOrNull { it.id == r.badRef }?.let { t ->
@@ -219,7 +219,7 @@ class TaxScreen(private val a: MainActivity) {
                 }
                 add(a.text("$what · ${r.reason}", 17f, bold = true))
                 add(a.text("이 줄부터 뒤의 해시가 모두 달라져, 고친 시점 이후 기록을 믿을 수 없어요", 15f, C.SUB), top = 6)
-                add(a.text("앵커 ${r.anchorsChecked}개와 대조 · 타임스탬프: ${SimulatedTsa.NAME}", 14f, C.DIM), top = 4)
+                add(a.text("앵커 ${r.anchorsChecked}개와 대조 · 기관 서명 ${c.anchors.count { Rfc3161.isSigned(it.receipt) }}개", 14f, C.DIM), top = 4)
             }
         }
         val actions = listOf(
@@ -227,10 +227,7 @@ class TaxScreen(private val a: MainActivity) {
                 c.reload(); a.render()
                 a.toast(if (c.integrity.ok) "체인 ${c.integrity.count}건을 다시 계산했어요 · 정상" else "${c.integrity.firstBadSeq}번째 기록부터 불일치")
             },
-            a.button("오늘 기록 앵커") {
-                val made = c.closeDay()
-                a.toast(made?.let { "오늘 기록 ${it.count}건을 앵커로 묶었어요 (시뮬레이션 타임스탬프)" } ?: "오늘 기록이 아직 없어요")
-            },
+            a.button("오늘 기록 앵커") { anchorToday(c, a) },
         )
         if (a.isNarrow) {
             add(status)
@@ -246,6 +243,15 @@ class TaxScreen(private val a: MainActivity) {
                 }, WRAP, WRAP)
             })
         }
+    }
+
+    /** 마지막 앵커의 타임스탬프 상태 한 줄 */
+    private fun tsaLine(anchor: ai.chagok.app.core.Integrity.DailyAnchor?): String = when {
+        c.stamping -> "타임스탬프: 기관에 요청 중… (날짜와 해시 지문만 보냄)"
+        anchor == null -> "타임스탬프: 하루가 끝나면 기관(RFC 3161)에 요청"
+        Rfc3161.isSigned(anchor.receipt) -> "타임스탬프: ${Rfc3161.host(anchor.receipt)} 서명 확인 (RFC 3161) · 외부에는 날짜와 해시 지문만 보냄"
+        anchor.receipt.isEmpty() -> "타임스탬프: 기관 응답 대기 · 연결되면 다시 요청"
+        else -> "타임스탬프: 이전 버전의 시뮬레이션 영수증"
     }
 
     /** 신고용 운행기록부 PDF. 체인이 어긋나 있으면 만들지 않는다 (검증 코드가 거짓이 되므로) */
@@ -272,7 +278,14 @@ class TaxScreen(private val a: MainActivity) {
         )
         val bytes = LogbookPdf.build(input)
         val fileName = "운행기록부_${year}_${stamp()}.pdf"
-        a.showPdfPreview("운행기록부 PDF 미리보기", bytes, "${input.rows.size}회 운행 · 검증 코드 ${Integrity.verifyCode(r.lastHash)}") {
+        val ledger = Integrity.exportJson(c.db.ledger(), c.anchors)
+        a.showPdfPreview(
+            "운행기록부 PDF 미리보기", bytes, "${input.rows.size}회 운행 · 검증 코드 ${Integrity.verifyCode(r.lastHash)}",
+            extra = listOf(
+                "검증 페이지" to { a.showVerifyPage(LogbookPdf.qrText(input), ledger) },
+                "검증 파일 저장" to { a.saveFile("검증파일_${year}_${stamp()}.json", ledger.toByteArray(Charsets.UTF_8), "application/json") },
+            ),
+        ) {
             a.saveFile(fileName, bytes, "application/pdf")
         }
     }
@@ -305,4 +318,15 @@ class TaxScreen(private val a: MainActivity) {
     }
 
     private fun stamp() = SimpleDateFormat("MMdd_HHmm", Locale.US).apply { timeZone = TaxReport.KST }.format(System.currentTimeMillis())
+}
+
+/** '오늘 기록 앵커'·'하루 마감': 앵커를 만들고 기관 서명 결과를 알린다 */
+internal fun anchorToday(c: ai.chagok.app.AppController, a: ai.chagok.app.MainActivity) {
+    val made = c.closeDay { done ->
+        a.toast(
+            if (done != null && Rfc3161.isSigned(done.receipt)) "${Rfc3161.host(done.receipt)} 타임스탬프 서명을 받았어요"
+            else "기관에 연결하지 못했어요. 연결되면 다시 요청해요",
+        )
+    }
+    a.toast(made?.let { "오늘 기록 ${it.count}건을 앵커로 묶고 타임스탬프를 요청해요" } ?: "오늘 기록이 아직 없어요")
 }

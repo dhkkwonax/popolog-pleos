@@ -3,9 +3,9 @@ package ai.chagok.app.vehicle
 import ai.chagok.app.model.VehicleInfo
 
 /**
- * 차량 데이터 출처. 실제 차량·Pleos 에뮬레이터에서는 [PleosVehicleGateway](src/pleos)가
+ * 차량 데이터 출처. 실제 차량·Pleos 에뮬레이터에서는 [PleosVehicleGateway](src/real, 실제 동작 모드)가
  * Vehicle SDK(Odometer, Fuel, EvBattery, Brake, CarInfo)와 FusedLocation SDK를 감싸고,
- * SDK가 없는 기기에서는 [SimulatedVehicle]이 같은 신호를 흉내 낸다.
+ * 데모 모드(src/demo)에서는 [SimulatedVehicle]이 같은 신호를 흉내 낸다.
  */
 interface VehicleGateway {
     val info: VehicleInfo

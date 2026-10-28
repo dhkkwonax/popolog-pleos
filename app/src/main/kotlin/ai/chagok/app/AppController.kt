@@ -4,6 +4,7 @@ import ai.chagok.app.core.DriverIdentifier
 import ai.chagok.app.core.EnergyEvent
 import ai.chagok.app.core.EnergyEventDetector
 import ai.chagok.app.core.Integrity
+import ai.chagok.app.core.Rfc3161
 import ai.chagok.app.core.TripClassifier
 import ai.chagok.app.core.TripEnd
 import ai.chagok.app.core.TripRecorder
@@ -27,6 +28,7 @@ import android.os.Handler
 import android.os.Looper
 import android.speech.tts.TextToSpeech
 import java.util.Locale
+import java.util.concurrent.Executors
 
 /**
  * 차량 신호 → 운행·비용 자동 기록의 중심.
@@ -121,8 +123,20 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
     val powertrain: Powertrain
         get() = if (db.setting(KEY_POWERTRAIN, Powertrain.ICE.name) == Powertrain.EV.name) Powertrain.EV else Powertrain.ICE
 
+    /** 데모 모드(가상 차량·예시 데이터·시연 오버레이) 빌드인지. 실제 동작 모드는 Pleos SDK 값만 쓴다 */
+    val demo: Boolean get() = BuildConfig.DEMO
+
+    /** 타임스탬프 요청 중인 앵커가 있는지 (화면 안내용) */
+    @Volatile
+    var stamping = false
+        private set
+    private val tsaExecutor = Executors.newSingleThreadExecutor()
+
+    /** 연결 뒤 첫 계기판 값으로 앱이 꺼져 있던 동안의 거리를 확인한다 */
+    private var checkGap = false
+
     fun start() {
-        if (db.setting(KEY_SEEDED) != "1") {
+        if (demo && db.setting(KEY_SEEDED) != "1") {
             DemoSeed.seed(db, powertrain)
             db.setSetting(KEY_SEEDED, "1")
         }
@@ -136,11 +150,16 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
         }
         connectGateway()
         handler.post(ticker)
+        stampPending()
     }
 
     fun stop() {
         handler.removeCallbacks(ticker)
+        handler.removeCallbacks(identifyOnIgnition)
+        handler.removeCallbacks(clearGreeting)
         if (::recorder.isInitialized) recorder.finish(gateway.now())
+        // 다음 실행 때 꺼져 있던 동안의 거리를 잴 기준
+        if (odoKm > 0) db.setSetting(KEY_LAST_ODO, odoKm.toString())
         gateway.stop()
         tts?.shutdown()
         tts = null
@@ -149,6 +168,7 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
     /** [fresh] 가 false 면 진행 중인 운행·주유 감지 상태를 이어 간다 (같은 차에 다시 붙을 때) */
     private fun connectGateway(fresh: Boolean = true) {
         if (fresh || !::recorder.isInitialized) {
+            checkGap = true
             recorder = TripRecorder(this)
             energy = EnergyEventDetector(
                 thresholdPercent = if (powertrain == Powertrain.EV) 3.0 else 5.0,
@@ -192,6 +212,14 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
         notifyChanged()
     }
 
+    /** 운전자 등록 (실제 동작 모드). 처음 등록한 사람은 바로 지금 운전자로 둔다 */
+    fun addDriver(name: String, department: String) {
+        val d = Driver("d" + System.currentTimeMillis().toString(36), name, department, null)
+        drivers = drivers + d
+        db.saveDrivers(drivers)
+        if (driver == null) chooseDriver(d.id) else notifyChanged()
+    }
+
     /** 지금 운전석 위치를 이 사람의 위치로 저장 (다음 시동부터 시트로 알아본다) */
     fun saveSeatFor(id: String) {
         val pos = seatPosition ?: return
@@ -211,6 +239,7 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
     }
 
     fun resetDemo() {
+        if (!demo) return
         stopGatewayOnly()
         val p = powertrain
         db.clearAll()
@@ -218,6 +247,7 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
         db.setSetting(KEY_POWERTRAIN, p.name)
         db.setSetting(KEY_SEEDED, "1")
         ensureLedger()
+        stampPending()
         askTripId = null
         askExpenseId = null
         lastNotice = ""
@@ -274,7 +304,7 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
         } finally {
             w.endTransaction()
         }
-        anchorPastDays(System.currentTimeMillis(), chain)
+        anchorPastDays(System.currentTimeMillis(), chain, backfill = true)
     }
 
     /** 체인에 한 줄 덧붙인다. 표의 기록은 최신 값으로 바뀌어도 체인의 이전 줄은 그대로 남는다 */
@@ -282,8 +312,11 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
         db.appendLedger(Integrity.append(db.ledger(), gateway.now(), kind, ref, payload))
     }
 
-    /** 앵커가 없는 지난 날을 마감한다 (하루가 끝날 때). 시연 시계가 날짜를 넘겨도 여기서 잡는다 */
-    private fun anchorPastDays(now: Long, chain: List<Integrity.Entry> = db.ledger()) {
+    /**
+     * 앵커가 없는 지난 날을 마감한다 (하루가 끝날 때). 시연 시계가 날짜를 넘겨도 여기서 잡는다.
+     * [backfill] 이면(기존 기록을 처음 옮길 때) 마지막 날만 기관 서명을 받고 그 앞날은 이관 앵커로 둔다
+     */
+    private fun anchorPastDays(now: Long, chain: List<Integrity.Entry> = db.ledger(), backfill: Boolean = false) {
         val today = Integrity.dayOf(now)
         val done = db.anchors().map { it.day }.toSet()
         val entryDays = chain.map { Integrity.dayOf(it.time) }
@@ -295,13 +328,44 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
             for (d in days) {
                 // 그날 끝(23:59) 직후 기관 영수증을 받은 것으로 둔다
                 val stampAt = endOfDay(d) + 5 * 60_000L
-                Integrity.anchorFor(chain, entryDays, d, stampAt)?.let(db::saveAnchor)
+                val receipt = if (backfill && d != days.last()) Rfc3161.BACKFILL else ""
+                Integrity.anchorFor(chain, entryDays, d, stampAt, receipt)?.let(db::saveAnchor)
             }
             w.setTransactionSuccessful()
         } finally {
             w.endTransaction()
         }
-        if (::gateway.isInitialized) reload()
+        if (::gateway.isInitialized) {
+            reload()
+            stampPending()
+        }
+    }
+
+    /**
+     * 기관 응답 전인 앵커마다 RFC 3161 타임스탬프를 받는다 (백그라운드). 오프라인이면 다음 기회(앱 시작·하루 마감)에 다시 한다.
+     * 기관에는 날짜와 hash 의 지문만 간다.
+     */
+    fun stampPending(onDone: (() -> Unit)? = null) {
+        val pending = db.anchors().filter { it.receipt.isEmpty() }
+        if (pending.isEmpty() || stamping) return
+        stamping = true
+        notifyChanged()
+        tsaExecutor.execute {
+            var ok = 0
+            for (a in pending) {
+                val receipt = Rfc3161.stamp(a.hash, a.day) ?: continue
+                val t = Rfc3161.check(receipt, a.hash, a.day)?.time ?: a.stampedAt
+                db.saveAnchor(a.copy(receipt = receipt, stampedAt = t))
+                ok++
+            }
+            android.util.Log.i("Popolog", "tsa stamped $ok/${pending.size}")
+            handler.post {
+                stamping = false
+                reload()
+                notifyChanged()
+                onDone?.invoke()
+            }
+        }
     }
 
     private fun endOfDay(day: String): Long = java.util.Calendar.getInstance(ai.chagok.app.core.TaxReport.KST).apply {
@@ -309,14 +373,15 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
         clear(); set(y, m - 1, d, 23, 59, 0)
     }.timeInMillis
 
-    /** 시연 '하루 마감': 오늘까지의 마지막 hash 를 앵커로 묶어 (시뮬레이션) 타임스탬프를 받는다 */
-    fun closeDay(): Integrity.DailyAnchor? {
+    /** '오늘 기록 앵커': 오늘까지의 마지막 hash 를 앵커로 묶고 기관(RFC 3161) 타임스탬프를 요청한다. 결과는 [onStamped] */
+    fun closeDay(onStamped: ((Integrity.DailyAnchor?) -> Unit)? = null): Integrity.DailyAnchor? {
         val now = gateway.now()
         val a = Integrity.anchorFor(db.ledger(), Integrity.dayOf(now), now) ?: return null
         db.saveAnchor(a)
         reload()
         lastNotice = "오늘 기록 ${a.count}건 앵커 · ${Integrity.verifyCode(a.hash)}"
         notifyChanged()
+        stampPending { onStamped?.invoke(db.anchors().firstOrNull { it.day == a.day }) }
         return a
     }
 
@@ -357,6 +422,10 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
     // ---- VehicleGateway.Listener ----
     override fun onOdometer(km: Double) {
         odoKm = km
+        if (checkGap) {
+            checkGap = false
+            recordOfflineGap(km)
+        }
         recorder.onOdometer(km, gateway.now())
         notifyChanged()
     }
@@ -386,6 +455,49 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
         if (driver != null && !recorder.isDriving && (before == null || kotlin.math.abs(before - position) > DriverIdentifier.SEAT_TOLERANCE)) {
             identifyDriver()
         }
+    }
+
+    /**
+     * 앱이 꺼져 있던 동안 달린 거리. 마지막으로 본 계기판 값보다 늘었으면 그 차이를 한 건의 운행으로 남기고 목적을 묻는다.
+     * 출발 시각·장소는 알 수 없어 마지막 기록 시각과 지금 위치로 두고, 메모에 보정 기록임을 적는다.
+     */
+    private fun recordOfflineGap(km: Double) {
+        val last = db.setting(KEY_LAST_ODO).toDoubleOrNull()
+        if (last == null || km - last < GAP_MIN_KM || recorder.isDriving) {
+            if (last == null || km > last) db.setSetting(KEY_LAST_ODO, km.toString())
+            return
+        }
+        val now = gateway.now()
+        val prev = trips.maxByOrNull { it.endTime }
+        val from = prev?.let { it.endLat to it.endLng } ?: (lat to lng)
+        val c = TripClassifier.classify(from.first, from.second, lat, lng, places)
+        val trip = Trip(
+            startTime = prev?.endTime?.coerceAtMost(now) ?: now, endTime = now,
+            startOdoKm = last, endOdoKm = km,
+            startLat = from.first, startLng = from.second, endLat = lat, endLng = lng,
+            purpose = TripPurpose.UNCLASSIFIED, classifiedBy = ClassifiedBy.NONE,
+            fromName = c.fromPlace?.name ?: "", toName = c.toPlace?.name ?: "",
+            memo = GAP_MEMO, driver = driver?.driver?.name ?: db.setting(KEY_DRIVER),
+        )
+        val id = db.upsert(trip)
+        record(Integrity.Kind.TRIP, id, Integrity.canonical(trip.copy(id = id)))
+        db.setSetting(KEY_LAST_ODO, km.toString())
+        reload()
+        askTripId = id
+        lastNotice = "앱이 꺼진 동안 ${fmtKm(trip.distanceKm)} 운행 · 계기판으로 보정"
+        android.util.Log.i("Popolog", "offline gap ${trip.distanceKm}")
+        speak("앱이 꺼져 있던 동안 ${fmtKmSpoken(trip.distanceKm)}를 달렸어요. 업무 운행이었나요?")
+        notifyChanged()
+    }
+
+    /** 데모: 앱을 끈 채 [km] 만큼 달린 것처럼 가상 차량을 다시 붙인다 (계기판만 늘어난 채로 다시 시동) */
+    fun demoOfflineDrive(km: Double) {
+        if (!demo) return
+        if (odoKm > 0) db.setSetting(KEY_LAST_ODO, odoKm.toString())
+        stopGatewayOnly()
+        db.setSetting(KEY_SIM_ODO, (odoKm + km).toString())
+        connectGateway()
+        notifyChanged()
     }
 
     /** 시뮬레이터에서 주유·충전이 끝났음을 알릴 때 */
@@ -520,6 +632,14 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
         const val KEY_DEPT = "dept"
         const val KEY_LAST_DRIVER = "last_driver"
         const val KEY_FORGED = "forged"
+        /** 데모: 다음 가상 차량의 시작 계기판 값 (앱 끈 채 운행 시연) */
+        const val KEY_SIM_ODO = "sim_odo"
+        /** 화면 테마: auto(시스템 주야간) · day · night */
+        const val KEY_THEME = "theme"
+
+        /** 이만큼 넘게 늘었을 때만 보정 운행으로 남긴다 (계기판 반올림 오차 제외) */
+        const val GAP_MIN_KM = 0.2
+        const val GAP_MEMO = "앱 꺼짐 구간 · 계기판 보정"
 
         private const val IDENTIFY_DELAY_MS = 1_500L
         private const val GREETING_MS = 12_000L

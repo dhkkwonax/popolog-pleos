@@ -76,10 +76,9 @@ class DemoOverlay(private val a: MainActivity) {
             a.select(MainActivity.Tab.TAX)
         }, px(TOUCH), 4)
         // 하루 마감: 오늘 마지막 해시를 앵커로 묶는다 (타임스탬프 기관은 시뮬레이션)
-        put(tool(Ic.SHIELD, "하루 마감 (앵커)", !busy) {
-            val made = c.closeDay()
-            a.toast(made?.let { "오늘 기록 ${it.count}건 앵커 · 시뮬레이션 타임스탬프" } ?: "오늘 기록이 아직 없어요")
-        }, px(TOUCH), 4)
+        put(tool(Ic.SHIELD, "하루 마감 (앵커)", !busy) { anchorToday(c, a) }, px(TOUCH), 4)
+        // 앱을 끈 채 달린 거리: 계기판만 12.4km 늘어난 채로 다시 시동해 보정 운행이 생기는 것을 보여 준다
+        put(tool(Ic.SWAP, "앱 끈 채 운행 (12km)", !busy) { c.demoOfflineDrive(12.4) }, px(TOUCH), 4)
         put(tool(Ic.RESET, "시연 데이터 초기화", !busy) {
             a.dialog("시연 데이터를 초기화할까요?", a.text("  지금까지의 기록을 지우고 6월 출고 이후 예시 기록을 다시 만듭니다.", 16f, C.SUB), "초기화") {
                 c.resetDemo()
