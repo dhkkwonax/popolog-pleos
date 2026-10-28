@@ -1,8 +1,9 @@
 #!/bin/bash
 # Windows 에뮬레이터를 (다시) 켜고 부팅이 끝날 때까지 기다린다.
-# usage: emu-restart.sh [cpu|gpu]   (기본 cpu: 촬영 검증 완료. gpu 는 Windows 화면에 창을 띄운다.
-#   GPU 를 창 없이(-no-window) 돌리면 screencap 이 2칸·야간 장면을 틀리게 찍는다)
-MODE=${1:-cpu}
+# usage: emu-restart.sh [gpu|cpu]   (기본 gpu: Intel Arc 로 그리고 Windows 화면에 창을 띄운다. 촬영 기본값.
+#   cpu: 창 없이 SwiftShader 로 그린다. 느리지만 화면이 없어도 된다(대안).
+#   GPU 를 창 없이(-no-window) 돌리면 screencap 이 2칸·야간 장면을 틀리게 찍으므로 그렇게 하지 않는다)
+MODE=${1:-gpu}
 WA=/mnt/c/Android/Sdk/platform-tools/adb.exe; S=emulator-5570
 if [ "$MODE" = gpu ]; then G="-gpu host -feature -Vulkan"; else G="-no-window -gpu swiftshader_indirect"; fi
 timeout 20 $WA -s $S emu kill >/dev/null 2>&1; sleep 10

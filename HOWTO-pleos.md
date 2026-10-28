@@ -1,7 +1,8 @@
 # Pleos Connect 에뮬레이터에서 Popolog 실행·촬영하기 (미니PC)
 
 에뮬레이터는 **Windows 쪽**에서 돌리고, 빌드와 촬영 스크립트는 **WSL** 에서 돌린다.
-**촬영은 CPU 렌더링(`-gpu swiftshader_indirect`) 모드가 검증됐다.** GPU 모드는 창을 띄울 때만 캡처가 맞다 (아래 '촬영').
+**촬영 기본값은 GPU 창 모드(`./emu-restart.sh gpu`, Windows 화면에 에뮬레이터 창을 띄움)다.** GPU 는 창을 띄울 때만 캡처가 맞다.
+대안은 CPU 렌더링(`./emu-restart.sh cpu`, 창 없음, 약 40초 느림) (아래 '촬영').
 (WSL 안 에뮬레이터는 GPU 를 쓰지 못해 CPU 렌더링이었고 지웠다. 이유는 아래 '참고'.)
 
 ## 설치된 것
@@ -24,8 +25,8 @@ WA=/mnt/c/Android/Sdk/platform-tools/adb.exe
 until [ "$($WA -s emulator-5570 shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = 1 ]; do sleep 3; done
 ```
 
-- 촬영용은 `-gpu host -feature -Vulkan` 대신 `-gpu swiftshader_indirect` 를 넣는다 (CPU 렌더링)
-- `-gpu host` : Intel Arc 140T 로 그린다. 직접 만져 볼 때는 빠르지만 촬영에는 쓰지 않는다 (`emu.log` 에 `Graphics Adapter … Intel(R) Arc(TM) 140T GPU`)
+- 위 명령은 창 없는 GPU 모드라 **촬영에는 쓰지 않는다** (2칸·야간 캡처가 틀린다). 촬영은 `tools/emu-restart.sh gpu`(창 띄움) 또는 `cpu`
+- `-gpu host` : Intel Arc 140T 로 그린다 (`emu.log` 에 `Graphics Adapter … Intel(R) Arc(TM) 140T GPU`)
 - `-feature -Vulkan` : **꼭 필요.** 켜 두면 왼쪽 Pleos 차량 그래픽이 질감 없이 하얀 모형으로 나온다
 - `-gpu angle_indirect` 는 GPU 가 아니라 SwiftShader(CPU)로 떨어지므로 쓰지 않는다
 - 끄기: `$WA -s emulator-5570 emu kill`
@@ -42,19 +43,20 @@ $WA -s emulator-5570 install -r 'C:\Android\dl\app-sim-debug.apk'   # Windows ad
 $WA -s emulator-5570 shell pm grant --user current ai.chagok.app pleos.car.permission.FUSED_LOCATION
 ```
 
-## 시연 자동 촬영 (CPU 모드, 주간 약 4분 + 야간 약 1분)
+## 시연 자동 촬영 (GPU 창 모드, 주간 약 3분 + 야간 약 1분)
 
 ```bash
 cd ~/Developments/chagok/tools
 D=~/Developments/chagok/screenshots-$(date +%Y%m%d-%H%M%S)
-./emu-restart.sh cpu && ./incar-capture-fast.sh emulator-5570 $D
-./emu-restart.sh cpu && ./incar-capture-night.sh emulator-5570 $D-night $D   # 야간은 켠 직후에 바꿔야 한다
+./emu-restart.sh gpu && ./incar-capture-fast.sh emulator-5570 $D
+./emu-restart.sh gpu && ./incar-capture-night.sh emulator-5570 $D-night $D   # 켠 직후 야간으로 바꾸고 앱을 띄운다
+# 미니PC 화면을 쓸 수 없을 때(창을 못 띄울 때)는 gpu 대신 cpu
 ```
 
 - 주간 21장(1칸 10 · 2칸 11) + 1칸 지도 합성본 10장(`*_1col_mockup.png`), 야간 홈 2장(+1칸 합성본). Z: 에는 1칸은 합성본만 넣는다
 - 찍기 전에 dumpsys 로 앱 창의 실제 bounds 를 읽어 파일 이름의 `_1col`/`_2col` 과 맞을 때만 찍고, 0.7초 간격으로 두 번 찍어 같을 때만 저장한다.
   주행 중 장면만 계속 바뀌어 한 번에 찍는다. 그래도 찍은 뒤에는 한 장씩 열어 본다
-- 빨리 감기는 기본 1배 (`SIM_SPEED`). CPU 모드는 화면 확인이 느려 2배면 운행 중 장면을 놓친다
+- 빨리 감기는 기본 1배 (`SIM_SPEED`). 화면 확인이 느린 CPU 모드에서 2배면 운행 중 장면을 놓쳐서 1배로 맞췄다
 - 기본 adb 는 Windows `adb.exe`. 다른 adb 를 쓰려면 `ADB_BIN=… ./incar-capture-fast.sh …`
 - 옆 칸 내비가 검게 남은 장면은 같은 촬영의 기준 장면 내비 칸으로 채운다 (`NavPanePaste.java`)
 
@@ -66,7 +68,7 @@ GPU(`-gpu host`) 에뮬레이터를 **`-no-window` 로 창 없이** 돌리면, �
 
 Windows 화면에 창을 띄우면(`./emu-restart.sh gpu`) 2칸 11장, 2칸↔1칸 전환, 앱이 떠 있는 상태의 야간 전환이 모두 정상으로 찍혔다.
 주간 21장 촬영은 3분 7초 걸렸다(CPU 모드 3분 50초). 에뮬레이터 자체 캡처(`emu screenrecord screenshot`)는 대화상자의 어두운 막이 빠지므로 쓰지 않는다.
-Z: 에 넣은 23장은 CPU 모드 촬영본이다. GPU 창 모드로 바꿀 때도 찍은 뒤 한 장씩 열어 본다.
+2026-10-28 Z: 에 넣은 23장은 CPU 모드 촬영본이다. 그 뒤 촬영 기본값을 GPU 창 모드로 바꿨다. 어느 모드든 찍은 뒤 한 장씩 열어 본다.
 
 | 방식 | 주간 21장 |
 |---|---|
