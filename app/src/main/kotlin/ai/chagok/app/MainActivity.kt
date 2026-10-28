@@ -360,6 +360,8 @@ class MainActivity : Activity() {
             askTripId, askExpenseId, monthOffset, powertrain, lastNotice,
             driver?.driver?.id, driver?.method, driverGreeting, drivers,
             (gateway as? ai.chagok.app.vehicle.SimulatedVehicle)?.busy,
+            // 홈은 차량 카드(주행 중·누적·연료)가 화면 안에 있어 값이 바뀌면 다시 그린다. 다른 탭은 updateStatus 가 맡는다
+            if (tab == Tab.HOME) listOf(isDriving, odoKm.toInt(), Math.round(energyPercent)) else null,
         ).joinToString("|")
     }
 

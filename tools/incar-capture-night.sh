@@ -21,13 +21,28 @@ has() { $U has "$1"; }
 waitfor() { for _ in $(seq 1 30); do stale; has "$1" && return 0; sleep 0.5; done; die "waitfor $1"; }
 waitgone() { for _ in $(seq 1 30); do stale; has "$1" || return 0; sleep 0.5; done; die "waitgone $1"; }
 tap() { $U tap "$1" || die "tap $1"; stale; }
-shot() { $A exec-out screencap -p > "$OUT/$1.png"; log "$1"; }
+
 
 read -r W H < <($A shell wm size | grep -oE "[0-9]+x[0-9]+" | tail -1 | tr x ' ')
 HY=$((H * 560 / 1125))
 SPLIT_X=$((W * 1694 / 2560))
 HANDLE_2COL=$((W * 1990 / 2000))
 chagok_right() { $A shell dumpsys activity activities | tr -d '\r' | grep -A1 "A=[0-9]*:ai.chagok.app" | grep -oE "mBounds=Rect\([^)]*\)" | head -1 | grep -oE "[0-9]+" | sed -n 3p; }
+# 찍기 전에 앱 창의 실제 bounds 로 1칸/2칸을 판정해 이름의 _1col/_2col 과 맞는지 보고,
+# 0.7초 간격으로 두 번 찍어 픽셀이 같을 때만 저장한다 (지난 화면·그리는 중인 화면 방지)
+shot() {
+    local n=$1 want=${1##*_} r act
+    local i
+    for i in $(seq 1 20); do
+        r=$(chagok_right); act=2col; [ "${r:-0}" -le $((SPLIT_X + 5)) ] && act=1col
+        if [ "$act" != "$want" ]; then sleep 0.5; continue; fi
+        $A exec-out screencap -p > "$OUT/.a.png"; sleep 0.7; $A exec-out screencap -p > "$OUT/.b.png"
+        if [ -s "$OUT/.a.png" ] && cmp -s "$OUT/.a.png" "$OUT/.b.png"; then mv "$OUT/.b.png" "$OUT/$n.png"; rm -f "$OUT/.a.png"; log "$n"; return 0; fi
+        # 주행 중처럼 계속 바뀌는 장면은 창 판정이 맞으면 여섯 번째에 받아들인다
+        if [ "$i" -ge 6 ] && [ -s "$OUT/.b.png" ]; then mv "$OUT/.b.png" "$OUT/$n.png"; rm -f "$OUT/.a.png"; log "$n (화면 변화 중)"; return 0; fi
+    done
+    die "shot $n (창 $act, 기대 $want)"
+}
 focus_chagok() { $A shell input tap $((W * 893 / 2560)) $((H * 110 / 1440)); }
 
 $A shell cmd uimode night yes >/dev/null; sleep 6
