@@ -146,12 +146,15 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
         tts = null
     }
 
-    private fun connectGateway() {
-        recorder = TripRecorder(this)
-        energy = EnergyEventDetector(
-            thresholdPercent = if (powertrain == Powertrain.EV) 3.0 else 5.0,
-            onEvent = ::onEnergyEvent,
-        )
+    /** [fresh] 가 false 면 진행 중인 운행·주유 감지 상태를 이어 간다 (같은 차에 다시 붙을 때) */
+    private fun connectGateway(fresh: Boolean = true) {
+        if (fresh || !::recorder.isInitialized) {
+            recorder = TripRecorder(this)
+            energy = EnergyEventDetector(
+                thresholdPercent = if (powertrain == Powertrain.EV) 3.0 else 5.0,
+                onEvent = ::onEnergyEvent,
+            )
+        }
         gateway = GatewayFactory.create(context, powertrain, db)
         gateway.start(this)
         // 시동(앱·게이트웨이 연결) 직후, 시트·위치 신호가 들어올 틈을 두고 운전자를 판별한다
@@ -227,11 +230,11 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
         gateway.stop()
     }
 
-    /** 차량 권한이 뒤늦게 승인되면 다시 연결한다 (Pleos 빌드의 런타임 권한) */
+    /** 차량 권한이 뒤늦게 승인되면 다시 연결한다 (Pleos 빌드의 런타임 권한). 주행 중이어도 운행은 끊지 않는다 */
     fun reconnectGateway() {
         if (!::gateway.isInitialized) return
         stopGatewayOnly()
-        connectGateway()
+        connectGateway(fresh = false)
         notifyChanged()
     }
 
