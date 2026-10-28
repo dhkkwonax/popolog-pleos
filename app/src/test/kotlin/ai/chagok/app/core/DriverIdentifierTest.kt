@@ -10,7 +10,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
 class DriverIdentifierTest {
-    private val kim = Driver("kim", "김차곡", "영업팀", seatPosition = 42)
+    private val kim = Driver("kim", "김도윤", "영업팀", seatPosition = 42)
     private val park = Driver("park", "박하나", "영업지원팀", seatPosition = 18)
     private val lee = Driver("lee", "이미등", "총무팀", seatPosition = null)
     private val drivers = listOf(kim, park, lee)
@@ -25,7 +25,7 @@ class DriverIdentifierTest {
         purpose = TripPurpose.COMMUTE, fromName = from, driver = driver.name,
     )
 
-    /** 김차곡은 아침에 집에서, 박하나는 낮에 회사에서 출발한다 */
+    /** 김도윤은 아침에 집에서, 박하나는 낮에 회사에서 출발한다 */
     private val history = listOf(
         trip(kim, "집", 20, 8), trip(kim, "집", 21, 8), trip(kim, "집", 22, 7),
         trip(park, "회사", 20, 13), trip(park, "회사", 22, 14),
@@ -40,7 +40,7 @@ class DriverIdentifierTest {
 
     @Test
     fun seatOutsideToleranceFallsBackToRoutine() {
-        // 시트 30 은 누구와도 6 넘게 차이 난다 → 아침 8시에 집에서 출발했으니 김차곡
+        // 시트 30 은 누구와도 6 넘게 차이 난다 → 아침 8시에 집에서 출발했으니 김도윤
         val r = DriverIdentifier.identify(drivers, seatPosition = 30, at(26, 8, 20), "집", history, lastDriverId = "park")!!
         assertEquals(kim, r.driver)
         assertEquals(DriverMethod.ROUTINE, r.method)

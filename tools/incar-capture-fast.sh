@@ -63,9 +63,11 @@ both() { shot "${1}_$MODE"; toggle; shot "${1}_$MODE"; }
 expand() { has "시연 컨트롤 접기" || { tap "시연 컨트롤 펼치기"; waitfor "시연 컨트롤 접기"; }; }
 fold()   { has "시연 컨트롤 접기" && { tap "시연 컨트롤 접기"; sleep 0.5; }; return 0; }
 drive()  { expand; tap "시연 도착지"; waitfor "$1"; tap "=$1"; }
-current_driver() { $U dump | grep -oE "(김차곡|박하나) \[" | head -1 | cut -d' ' -f1; }
+current_driver() { $U dump | grep -oE "(김도윤|박하나) \[" | head -1 | cut -d' ' -f1; }
 
-echo "[준비] 빨리 감기 ×$SPEED"
+echo "[준비] 빨리 감기 ×$SPEED, 주간 모드"
+# 기본 21장은 주간. Pleos 시스템 UI 와 앱이 함께 시스템 야간 모드를 따른다
+$A shell cmd uimode night no >/dev/null
 $A shell monkey -p ai.umos.maps.android.navigation.app -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1
 $A shell am force-stop --user current ai.chagok.app
 $A shell pm clear --user current ai.chagok.app >/dev/null
@@ -115,12 +117,19 @@ cur=$(current_driver); [ -n "$cur" ] || die "no current driver"
 waitfor "운전자 바꾸기"; tap "운전자 바꾸기"; waitfor "지금 운전하는 분"; shot "07a_driver_picker_$MODE"
 $A shell input keyevent KEYCODE_BACK; sleep 0.3; toggle
 waitfor "운전자 바꾸기"; tap "운전자 바꾸기"; waitfor "지금 운전하는 분"; shot "07a_driver_picker_$MODE"
-other=$($U dump | grep -oE "^(김차곡|박하나) · [^ ]+" | grep -v "^$cur " | head -1)
+other=$($U dump | grep -oE "^(김도윤|박하나) · [^ ]+" | grep -v "^$cur " | head -1)
 [ -n "$other" ] || die "no other driver"
 tap "$other"; waitfor "님으로 바꿨어요"; both 07b_driver_changed
 
 # 2칸으로 되돌려 둔다
 [ $MODE = 1col ] && toggle
+
+# 야간 모드 홈 (2칸 → 1칸). 바뀌는 즉시 앱과 Pleos 시스템 UI 가 함께 다시 그려진다
+$A shell input keyevent KEYCODE_BACK; sleep 0.3; stale; tap "=홈"; sleep 0.6
+$A shell cmd uimode night yes >/dev/null; sleep 4; stale
+both 08_home_night
+[ $MODE = 1col ] && toggle
+$A shell cmd uimode night no >/dev/null; sleep 2
 rm -f "$UI_CACHE"
 log "촬영 끝"
 "$HERE/map-mockup.sh" "$OUT" >/dev/null

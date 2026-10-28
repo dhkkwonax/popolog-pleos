@@ -172,7 +172,7 @@ class TaxReportTest {
     @Test
     fun logbookCsvHasNtsColumns() {
         val trips = listOf(t(1, 25.0, TripPurpose.COMMUTE, 100.0), t(2, 10.0, TripPurpose.PERSONAL, 125.0))
-        val csv = TaxReport.logbookCsv(2026, trips, VehicleInfo("그랜저", "123가 4567", "VIN", Powertrain.ICE, 64.0), "차곡상사", "123-45-67890", "영업팀")
+        val csv = TaxReport.logbookCsv(2026, trips, VehicleInfo("그랜저", "123가 4567", "VIN", Powertrain.ICE, 64.0), "한결상사", "123-45-67890", "영업팀")
         assertTrue(csv.startsWith("﻿"))
         assertTrue("주행 전 계기판의 거리(km)" in csv)
         assertTrue("2026-06-01(월),영업팀,,100.0,125.0,25.0,25.0,0.0" in csv, csv)

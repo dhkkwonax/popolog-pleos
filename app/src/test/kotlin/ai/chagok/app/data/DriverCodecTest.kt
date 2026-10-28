@@ -7,7 +7,7 @@ import kotlin.test.assertEquals
 class DriverCodecTest {
     @Test
     fun roundTripKeepsMissingSeat() {
-        val list = listOf(Driver("kim", "김차곡", "영업팀", 42), Driver("lee", "이미등", "총무팀", null))
+        val list = listOf(Driver("kim", "김도윤", "영업팀", 42), Driver("lee", "이미등", "총무팀", null))
         assertEquals(list, decodeDrivers(encodeDrivers(list)))
     }
 

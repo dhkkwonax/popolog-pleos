@@ -151,8 +151,8 @@ class DemoOverlay(private val a: MainActivity) {
 
     companion object {
         /** 중립 회색, 약 40% 불투명 (보라는 쓰지 않는다) */
-        private val PANEL_BG = Color.argb(104, 0x1F, 0x27, 0x31)
-        private val PANEL_LINE = Color.argb(140, 0xB4, 0xBE, 0xCB)
+        private val PANEL_BG get() = (C.SURFACE2 and 0x00FFFFFF) or (104 shl 24)
+        private val PANEL_LINE get() = (C.SUB and 0x00FFFFFF) or (140 shl 24)
 
         /** 터치 영역 (dp) */
         private const val TOUCH = 44

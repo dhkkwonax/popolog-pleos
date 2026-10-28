@@ -102,9 +102,7 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         setTheme(android.R.style.Theme_Material_NoActionBar)
         super.onCreate(savedInstanceState)
-        window.statusBarColor = C.BG
-        window.navigationBarColor = C.BG
-        window.setBackgroundDrawable(ColorDrawable(C.BG))
+        applyDayNight()
         // 스크린샷 자동 촬영용 빨리 감기 (am start --ei sim_speed N). 가상 차량에만 영향
         ai.chagok.app.vehicle.SimulatedVehicle.timeScale = intent.getIntExtra("sim_speed", 1).coerceIn(1, 8)
         controller = AppController(this)
@@ -143,8 +141,17 @@ class MainActivity : Activity() {
     /** 회전·분할 화면 등으로 가로/세로가 바뀌면 내비게이션 배치를 다시 만든다 */
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
+        // 주간·야간이 바뀌면 (Pleos 시스템 UI 와 같은 신호) 색을 바꿔 바로 다시 그린다
+        applyDayNight()
         buildShell()
         render()
+    }
+
+    private fun applyDayNight() {
+        C.use(C.isNight(this))
+        window.statusBarColor = C.BG
+        window.navigationBarColor = C.BG
+        window.setBackgroundDrawable(ColorDrawable(C.BG))
     }
 
     override fun onDestroy() {
@@ -301,7 +308,7 @@ class MainActivity : Activity() {
                 setImageDrawable(rounded(C.ACCENT_BG, 14))
             }
         }, dp(48), dp(48), end = 14)
-        add(text("차곡", 22f, bold = true), WRAP, WRAP)
+        add(text("Popolog", 22f, bold = true), WRAP, WRAP)
         setPadding(dp(10), dp(4), 0, dp(20))
     }
 
@@ -579,7 +586,7 @@ class MainActivity : Activity() {
 
     fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
 
-    /** 다운로드 폴더(Download/Chagok)에 CSV 저장 */
+    /** 다운로드 폴더(Download/Popolog)에 CSV 저장 */
     fun saveCsv(fileName: String, csv: String) {
         try {
             val bytes = csv.toByteArray(Charsets.UTF_8)
@@ -587,7 +594,7 @@ class MainActivity : Activity() {
                 val values = ContentValues().apply {
                     put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
                     put(MediaStore.MediaColumns.MIME_TYPE, "text/csv")
-                    put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/Chagok")
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/Popolog")
                 }
                 val uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
                     ?: throw IllegalStateException("MediaStore insert failed")
@@ -595,7 +602,7 @@ class MainActivity : Activity() {
             } else {
                 File(getExternalFilesDir(null), fileName).writeBytes(bytes)
             }
-            toast("저장했어요: 다운로드/Chagok/$fileName")
+            toast("저장했어요: 다운로드/Popolog/$fileName")
         } catch (e: Exception) {
             val f = File(getExternalFilesDir(null), fileName)
             f.writeBytes(csv.toByteArray(Charsets.UTF_8))

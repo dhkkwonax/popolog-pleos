@@ -58,6 +58,6 @@ class SettingsScreen(private val a: MainActivity) {
             add(line("사용하는 SDK", "Odometer · Fuel/EvBattery · Brake · CarInfo · FusedLocation · STT · TTS"), top = 10)
         }, top = 16)
 
-        add(a.text("차곡 0.1.0 데모 · 현대자동차그룹 Pleos 앱 공모전 출품용 프로토타입", 14f, C.DIM), top = 20)
+        add(a.text("Popolog 0.1.0 데모 · 현대자동차그룹 Pleos 앱 공모전 출품용 프로토타입", 14f, C.DIM), top = 20)
     }
 }

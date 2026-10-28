@@ -17,28 +17,66 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 
-/** 차량 디스플레이용 다크 테마. 운전 중 시선 분산을 줄이려 대비는 높이고 색은 의미 있는 곳에만 쓴다. */
+/**
+ * 색 토큰. Pleos 시스템 UI 와 같이 Android 시스템 야간 모드(Configuration.uiMode)를 따라 주간·야간 세트를 고른다.
+ * 바탕은 Pleos 의 흰/검정·그래파이트에 맞춘 무채색이고, 강조색은 내비 현재위치 파랑에서 채도를 낮춘 차분한 파랑이다.
+ * 강조색은 주요 버튼 하나와 데이터 막대에만, 노랑은 '조치 필요'에만 쓴다. 글자는 모든 표면에서 4.5:1 이상.
+ */
 object C {
-    val BG = Color.parseColor("#0B0F14")
-    val RAIL = Color.parseColor("#0F141B")
-    val SURFACE = Color.parseColor("#161C24")
-    val SURFACE2 = Color.parseColor("#1F2731")
-    val LINE = Color.parseColor("#2A3441")
-    val TEXT = Color.parseColor("#F2F5F8")
-    // 글자 회색 두 단계. 어느 표면(#0B0F14~#2A3441) 위에서도 4.5:1 이상 (SUB 6.7~10.2, DIM 4.6~7.1)
-    val SUB = Color.parseColor("#B4BECB")
-    val DIM = Color.parseColor("#929EAD")
+    var night = true
+        private set
+    var BG = 0; private set
+    var RAIL = 0; private set
+    var SURFACE = 0; private set
+    var SURFACE2 = 0; private set
+    var LINE = 0; private set
+    var TEXT = 0; private set
+    var SUB = 0; private set
+    var DIM = 0; private set
 
     /** 선택된 메뉴·탭: 강조색이 아닌 중립 회색 알약 */
-    val NAV_ACTIVE = Color.parseColor("#2A3441")
-    val ACCENT = Color.parseColor("#2DD4BF")
-    val ACCENT_BG = Color.parseColor("#123B39")
-    /** 정상·완료 표시 (체크). 카드 위 8:1 이상 */
-    val POSITIVE = Color.parseColor("#4ADE80")
-    val AMBER = Color.parseColor("#FBBF24")
-    val AMBER_BG = Color.parseColor("#3A2E10")
-    val RED = Color.parseColor("#F87171")
-    val RED_BG = Color.parseColor("#3B1A1A")
+    var NAV_ACTIVE = 0; private set
+    var ACCENT = 0; private set
+    var ACCENT_BG = 0; private set
+
+    /** 강조색으로 채운 주요 버튼 위 글자 */
+    var ON_ACCENT = 0; private set
+
+    /** 정상·완료 표시 (체크) */
+    var POSITIVE = 0; private set
+    var AMBER = 0; private set
+    var AMBER_BG = 0; private set
+    var ON_AMBER = 0; private set
+    var RED = 0; private set
+    var RED_BG = 0; private set
+
+    /** 누를 때 물결 */
+    var RIPPLE = 0; private set
+
+    init { use(night = true) }
+
+    fun use(night: Boolean) {
+        this.night = night
+        fun c(h: String) = Color.parseColor(h)
+        if (night) {
+            BG = c("#0B0C0E"); RAIL = c("#101114"); SURFACE = c("#17191C"); SURFACE2 = c("#222428"); LINE = c("#2C2F34")
+            TEXT = c("#F2F3F5"); SUB = c("#B9BEC6"); DIM = c("#979DA6"); NAV_ACTIVE = c("#2C2F34")
+            ACCENT = c("#86AAF2"); ACCENT_BG = c("#1A2740"); ON_ACCENT = c("#0B1A33")
+            POSITIVE = c("#5BD08A"); AMBER = c("#F2B33D"); AMBER_BG = c("#33270E"); ON_AMBER = c("#2A1E00")
+            RED = c("#F87171"); RED_BG = c("#3B1A1A"); RIPPLE = Color.argb(60, 255, 255, 255)
+        } else {
+            BG = c("#F3F4F6"); RAIL = c("#FFFFFF"); SURFACE = c("#FFFFFF"); SURFACE2 = c("#ECEEF1"); LINE = c("#DDE0E5")
+            TEXT = c("#15171A"); SUB = c("#454B54"); DIM = c("#5B626C"); NAV_ACTIVE = c("#E2E5EA")
+            ACCENT = c("#2F5FC4"); ACCENT_BG = c("#E6EDFA"); ON_ACCENT = c("#FFFFFF")
+            POSITIVE = c("#1D7A43"); AMBER = c("#8A4B00"); AMBER_BG = c("#FFF3D6"); ON_AMBER = c("#FFFFFF")
+            RED = c("#B42318"); RED_BG = c("#FDECEA"); RIPPLE = Color.argb(40, 0, 0, 0)
+        }
+    }
+
+    /** 시스템 야간 모드인지 */
+    fun isNight(context: Context): Boolean =
+        (context.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
+            android.content.res.Configuration.UI_MODE_NIGHT_YES
 }
 
 /** 외곽선 아이콘 한 세트 (res/drawable/ic_*.xml, 24 그리드·1.75 선). 이모지 대신 쓴다 */
@@ -219,7 +257,7 @@ fun Context.rounded(color: Int, radiusDp: Int = 16, strokeColor: Int? = null): G
     }
 
 fun Context.pressable(bg: Drawable): Drawable =
-    RippleDrawable(ColorStateList.valueOf(Color.argb(60, 255, 255, 255)), bg, bg)
+    RippleDrawable(ColorStateList.valueOf(C.RIPPLE), bg, bg)
 
 fun Context.text(
     s: CharSequence,
@@ -293,10 +331,10 @@ fun Context.button(label: String, style: BtnStyle = BtnStyle.SECONDARY, enabled:
         minHeight = touchHeight(64)
         setPadding(dp(24), dp(12), dp(24), dp(12))
         val (bg, fg) = when (style) {
-            BtnStyle.PRIMARY -> C.ACCENT to Color.parseColor("#06201E")
+            BtnStyle.PRIMARY -> C.ACCENT to C.ON_ACCENT
             BtnStyle.SECONDARY -> C.SURFACE2 to C.TEXT
             BtnStyle.GHOST -> Color.TRANSPARENT to C.SUB
-            BtnStyle.WARN -> C.AMBER to Color.parseColor("#2A1E00")
+            BtnStyle.WARN -> C.AMBER to C.ON_AMBER
         }
         setTextColor(fg)
         if (icon != null) {

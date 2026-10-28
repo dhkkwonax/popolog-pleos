@@ -33,7 +33,7 @@ object DemoSeed {
     const val START_ODO = 12.0
 
     /** 이 차를 함께 쓰는 두 사람. 시트 위치가 달라 시동 때 누가 탔는지 알 수 있다 */
-    val KIM = Driver("kim", "김차곡", "영업팀", seatPosition = 42)
+    val KIM = Driver("kim", "김도윤", "영업팀", seatPosition = 42)
     val PARK = Driver("park", "박하나", "영업지원팀", seatPosition = 18)
 
     fun vehicle(p: Powertrain) = when (p) {
@@ -43,7 +43,7 @@ object DemoSeed {
 
     fun seed(db: ChagokDb, p: Powertrain, now: Long = System.currentTimeMillis()) {
         listOf(HOME, OFFICE, CLIENT_A, CLIENT_B).forEach { db.upsert(it) }
-        db.setSetting("company", "주식회사 차곡상사")
+        db.setSetting("company", "주식회사 한결상사")
         db.setSetting("bizno", "123-45-67890")
         db.setSetting("dept", "영업팀")
         db.saveDrivers(listOf(KIM, PARK))
@@ -65,7 +65,7 @@ object DemoSeed {
                 set(Calendar.HOUR_OF_DAY, h); set(Calendar.MINUTE, m)
             }.timeInMillis
 
-            // 출퇴근·주말은 김차곡, 낮 거래처 방문은 박하나가 몬다
+            // 출퇴근·주말은 김도윤, 낮 거래처 방문은 박하나가 몬다
             fun trip(from: Place?, to: Place?, toLat: Double, toLng: Double, km: Double, start: Long, purpose: TripPurpose, by: ClassifiedBy, toName: String, driver: Driver = KIM) {
                 val dist = Math.round((km + rnd.nextGaussian() * km * 0.03) * 10) / 10.0
                 val minutes = (dist / 38.0 * 60).toLong() + 5
