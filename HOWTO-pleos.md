@@ -1,0 +1,76 @@
+# Pleos Connect 에뮬레이터에서 차곡 실행·촬영하기 (미니PC)
+
+에뮬레이터는 **Windows 쪽**에서 Intel Arc 140T GPU 로 돌리고, 빌드와 촬영 스크립트는 **WSL** 에서 돌린다.
+(WSL 안 에뮬레이터는 GPU 를 쓰지 못해 CPU 렌더링이었고 지웠다. 이유는 아래 '참고'.)
+
+## 설치된 것
+
+| 위치 | 내용 |
+|---|---|
+| `C:\Android\Sdk` | Windows 에뮬레이터 37.2.12, platform-tools(adb), Pleos Connect v2.1.0 시스템 이미지 |
+| `C:\Android\avd\pleos17.avd` | 공식 17″ Connect-S 프리셋 (2560×1440, 160dpi, RAM 4GB, 6코어, `hw.gpu.mode=host`) |
+| `C:\Android\home` | adb 키 (WSL `~/.android/adbkey` 복사본). Windows 사용자 폴더가 한글이라 영문 경로에 둔다 |
+| WSL `~/opt/jdk-17.0.21+9`, `~/opt/gradle-8.10.2`, `~/Android/Sdk` | 빌드용 JDK·Gradle·SDK(platforms, build-tools) |
+| WSL `~/Downloads/pleos/crp_car_emulator.zip` | Pleos 이미지 원본 (재설치용, 4GB) |
+
+경로는 영문만 쓴다. 관리자 권한은 필요 없다 (WHPX 가속은 이미 켜져 있음).
+
+## 에뮬레이터 띄우기 (WSL 에서)
+
+```bash
+powershell.exe -NoProfile -Command '$env:ANDROID_SDK_ROOT="C:\Android\Sdk"; $env:ANDROID_AVD_HOME="C:\Android\avd"; $env:ANDROID_EMULATOR_HOME="C:\Android\home"; Start-Process -FilePath C:\Android\Sdk\emulator\emulator.exe -ArgumentList "-avd pleos17 -no-window -no-audio -no-snapshot -gpu host -feature -Vulkan -memory 4096 -cores 6 -port 5570" -RedirectStandardOutput C:\Android\emu.log -RedirectStandardError C:\Android\emu.err -WindowStyle Hidden'
+WA=/mnt/c/Android/Sdk/platform-tools/adb.exe
+until [ "$($WA -s emulator-5570 shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = 1 ]; do sleep 3; done
+```
+
+- `-gpu host` : Intel Arc 140T 로 그린다 (`emu.log` 에 `Graphics Adapter … Intel(R) Arc(TM) 140T GPU`)
+- `-feature -Vulkan` : **꼭 필요.** 켜 두면 왼쪽 Pleos 차량 그래픽이 질감 없이 하얀 모형으로 나온다
+- `-gpu angle_indirect` 는 GPU 가 아니라 SwiftShader(CPU)로 떨어지므로 쓰지 않는다
+- 끄기: `$WA -s emulator-5570 emu kill`
+
+## 빌드·설치
+
+```bash
+export JAVA_HOME=~/opt/jdk-17.0.21+9
+cd ~/Developments/chagok/app-studio
+./gradlew assembleSimDebug        # 시뮬레이터(가상 차량, 시연 오버레이)
+./gradlew assemblePleosDebug      # 실제 Pleos SDK
+cp app/build/outputs/apk/sim/debug/app-sim-debug.apk /mnt/c/Android/dl/
+$WA -s emulator-5570 install -r 'C:\Android\dl\app-sim-debug.apk'   # Windows adb 는 Windows 경로로 준다
+$WA -s emulator-5570 shell pm grant --user current ai.chagok.app pleos.car.permission.FUSED_LOCATION
+```
+
+## 시연 자동 촬영 (약 2분 16초)
+
+```bash
+cd ~/Developments/chagok/tools
+./incar-capture-fast.sh emulator-5570 ~/Developments/chagok/screenshots-$(date +%Y%m%d-%H%M%S)
+```
+
+- 21장(1칸 10 · 2칸 11) + 1칸 지도 합성본 10장(`*_1col_mockup.png`). Z: 에는 1칸은 합성본만 넣는다
+- 기본 adb 는 Windows `adb.exe`. 다른 adb 를 쓰려면 `ADB_BIN=… ./incar-capture-fast.sh …`
+- 촬영 때만 시연 운행을 2배 빨리 감는다 (`am start --ei sim_speed 2`). 기록 결과는 실제 시연과 같다
+- GPU 모드에서 창을 나눈 뒤 옆 칸 내비가 검게 남는 장면은 같은 촬영의 기준 장면 내비 칸으로 채운다 (`NavPanePaste.java`)
+
+| 방식 | 21장 촬영 | CPU |
+|---|---|---|
+| WSL 에뮬레이터, SwiftShader(CPU 렌더링) | 3분 3초 | 에뮬레이터 혼자 약 12코어 |
+| **Windows 에뮬레이터, Intel Arc GPU** | **2분 16초** | Windows 전체 평균 약 24% |
+
+## 다시 설치할 때
+
+1. `emulator-windows_x64-16428233.zip`, `platform-tools_r37.0.1-win.zip` (dl.google.com/android/repository) 을 `C:\Android\Sdk` 에 푼다
+2. `crp_car_emulator.zip` 을 `C:\Android\Sdk\system-images\android-34\pleos_car_emulator` 에 풀고, 생긴 `crp_avd_out_x86_64` 를 `x86_64` 로 이름 바꾼 뒤 `package.xml` 을 넣는다
+3. `C:\Android\avd\pleos17.ini`, `pleos17.avd\config.ini` 를 만든다 (`image.sysdir.1=system-images\android-34\pleos_car_emulator\x86_64\`, `hw.lcd.width=2560`, `hw.lcd.height=1440`, `hw.lcd.density=160`, `hw.gpu.mode=host`)
+4. WSL `~/.android/adbkey*` 를 `C:\Android\home` 에 복사한다 (없으면 adb 가 `unauthorized`)
+
+## 참고: WSL 안 에뮬레이터로 GPU 를 쓰지 못한 이유
+
+WSL 의 Mesa d3d12 경로로 Intel Arc 를 잡을 수는 있었지만, OpenGL ES 3.1 기능을 켜면 큰 GPU 메모리 할당을
+WSL 의 GPU 통로(dxg)가 `dxgkio_create_allocation: Ioctl failed: -75 (EOVERFLOW)` 로 거부하고 장치가 끊겼다.
+3.1 을 끄면 부팅은 되지만 왼쪽 차량 그래픽이 'OpenGL ES 3.1 이상 필요' 로 그려지지 않았다.
+에뮬레이터 37.3.5, 화면 크기 축소, 기능·확장 끄기로도 같았다. Windows 에뮬레이터는 이 통로를 거치지 않는다.
+
+## Virtual Console (차량 값 조작)
+
+기기 8088 포트에 Virtual Console 웹서버가 있다. 읽기(`/vehicle/state`)는 되지만 쓰기는 `emulator_inactive` 로 거부된다.
