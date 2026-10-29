@@ -24,9 +24,13 @@ class HomeScreen(private val a: MainActivity) {
         // 홈은 페이지 제목 대신 차량·운전자 카드로 시작한다 (머리말의 작은 글자 줄들을 큰 타일로)
         add(vehicleCard())
         c.driverGreeting?.let { add(greeting(it), top = 14) }
+        // 앱이 먼저 묻는 질문 (같은 기록을 묻는 아래 카드는 숨긴다)
+        val asking = c.assistant.current
+        asking?.let { add(a.assistantCard(it), top = 14) }
         add(statusCard(), top = 14)
-        c.pendingExpense()?.let { add(expensePrompt(it), top = 14) }
-        c.pendingTrip()?.let { add(tripPrompt(it), top = 14) }
+        c.flows.dueItems().firstOrNull()?.let { add(maintenanceCard(it), top = 14) }
+        c.pendingExpense()?.takeUnless { asking?.refType == "expense" && asking.refId == it.id }?.let { add(expensePrompt(it), top = 14) }
+        c.pendingTrip()?.takeUnless { asking?.refType == "trip" && asking.refId == it.id }?.let { add(tripPrompt(it), top = 14) }
         add(costCard(), top = 14)
         add(recent(), top = 14)
     }
@@ -118,6 +122,21 @@ class HomeScreen(private val a: MainActivity) {
         }
     }
 
+    /** 주행거리 기준 교체 주기가 된 정비 항목. 정비했다고 입력하면 이어서 기록한다 */
+    private fun maintenanceCard(d: ai.chagok.app.core.MaintenancePlan.Due): View = a.card(C.SURFACE, stroke = C.AMBER) {
+        add(a.hbox {
+            add(a.icon(Ic.WRENCH, C.AMBER, 28), WRAP, WRAP, end = 16)
+            add(a.vbox {
+                add(a.text("${d.item.name} 교체 시기예요", 22f, bold = true))
+                val last = d.lastOdo?.let { "마지막 ${AppController.fmtKm(it)}" } ?: "정비 기록 없음"
+                add(a.text("$last · 주기 ${String.format(Locale.US, "%,d", d.item.intervalKm)}km", 16f, C.SUB), top = 6)
+            }, 0, WRAP, 1f)
+            add(a.button("정비 입력", BtnStyle.PRIMARY, icon = Ic.WRENCH) {
+                a.showExpenseInput(ai.chagok.app.model.ExpenseDraft(ai.chagok.app.model.ExpenseCategory.MAINTENANCE, items = listOf(d.item.name.substringBefore(' '))))
+            }, WRAP, WRAP)
+        })
+    }
+
     /** 시동 직후 잠깐: 누구로 인식했는지와 바꾸는 방법 */
     private fun greeting(text: String): View = a.card(C.SURFACE, stroke = C.LINE) {
         val d = c.driver
@@ -151,7 +170,7 @@ class HomeScreen(private val a: MainActivity) {
             }, 0, WRAP, 1f)
         })
         add(a.hbox {
-            add(a.button("금액 말하기", BtnStyle.PRIMARY, icon = Ic.MIC) { a.askAmountByVoice(e) }, 0, WRAP, 1.2f, end = 10)
+            add(a.button("금액 말하기", BtnStyle.PRIMARY, icon = Ic.MIC) { c.flows.askAmount(e) }, 0, WRAP, 1.2f, end = 10)
             add(a.button("직접 입력") { a.askAmountByKeypad(e) }, 0, WRAP, 1f, end = 10)
             add(a.button("나중에", BtnStyle.GHOST) { c.dismissExpenseQuestion() }, 0, WRAP, 0.8f)
         }, top = 18)
@@ -173,7 +192,7 @@ class HomeScreen(private val a: MainActivity) {
             }, 0, WRAP, 1f)
         })
         val choices = listOf(
-            a.button("말하기", BtnStyle.PRIMARY, icon = Ic.MIC) { a.askPurposeByVoice(t) },
+            a.button("말하기", BtnStyle.PRIMARY, icon = Ic.MIC) { c.flows.askPurpose(t) },
             a.button("일반업무") { c.classifyTrip(t.id, TripPurpose.BUSINESS, ai.chagok.app.model.ClassifiedBy.MANUAL) },
             a.button("출퇴근") { c.classifyTrip(t.id, TripPurpose.COMMUTE, ai.chagok.app.model.ClassifiedBy.MANUAL) },
             a.button("비업무") { c.classifyTrip(t.id, TripPurpose.PERSONAL, ai.chagok.app.model.ClassifiedBy.MANUAL) },

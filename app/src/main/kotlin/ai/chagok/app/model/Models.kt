@@ -15,6 +15,8 @@ enum class PlaceKind(val label: String) {
     HOME("집"),
     OFFICE("회사"),
     CLIENT("거래처"),
+    /** 이름만 붙여 두는 장소. 운행 목적 자동 분류에는 쓰지 않는다 */
+    OTHER("기타"),
 }
 
 enum class TripPurpose(val label: String) {
@@ -75,6 +77,8 @@ enum class ExpenseSource(val label: String) {
     AUTO("자동 감지"),
     VOICE("음성 입력"),
     MANUAL("직접 입력"),
+    /** 외부 연동 내역을 사용자가 승인해 넣은 기록 */
+    SYNC("자동 연동"),
 }
 
 data class Expense(
@@ -89,6 +93,8 @@ data class Expense(
     val source: ExpenseSource = ExpenseSource.MANUAL,
     /** 자동 감지됐지만 금액이 아직 입력되지 않은 항목 */
     val pendingAmount: Boolean = false,
+    /** 정비소·주유소·주차장 등 결제한 곳 (선택) */
+    val shop: String = "",
 )
 
 enum class Powertrain { ICE, EV }
@@ -121,4 +127,19 @@ enum class DriverMethod(val label: String) {
     ROUTINE("출발 시간·장소"),
     LAST("마지막 운전자"),
     MANUAL("직접 선택"),
+}
+
+/** 비용을 저장하기 전에 확인 카드로 보여 주는 초안. 터치·음성(Gleo)·연동 어느 쪽에서 오든 같은 카드를 거친다 */
+data class ExpenseDraft(
+    val category: ExpenseCategory = ExpenseCategory.MAINTENANCE,
+    val amountWon: Long? = null,
+    /** 정비소·주유소·주차장 등 결제한 곳 */
+    val shop: String = "",
+    /** 정비 항목 칩(엔진오일·타이어…) */
+    val items: List<String> = emptyList(),
+    val memo: String = "",
+    val source: ExpenseSource = ExpenseSource.MANUAL,
+) {
+    /** 장부에 남는 메모: 항목 칩, 이어서 직접 쓴 메모 */
+    val memoText: String get() = listOf(items.joinToString(", "), memo).filter { it.isNotBlank() }.joinToString(" · ")
 }

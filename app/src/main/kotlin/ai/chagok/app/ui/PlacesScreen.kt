@@ -41,7 +41,7 @@ class PlacesScreen(private val a: MainActivity) {
         val ic = when (p.kind) {
             PlaceKind.HOME -> Ic.HOME
             PlaceKind.OFFICE -> Ic.LEDGER
-            PlaceKind.CLIENT -> Ic.PIN
+            PlaceKind.CLIENT, PlaceKind.OTHER -> Ic.PIN
         }
         add(a.icon(ic, C.SUB, 22), WRAP, WRAP, end = 14)
         add(a.text(p.kind.label, 15f, C.SUB), a.dp(64), WRAP, end = 8)

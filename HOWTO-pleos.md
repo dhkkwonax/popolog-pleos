@@ -59,6 +59,22 @@ for p in FUSED_LOCATION; do   # 나머지 차량 권한은 설치할 때 자동�
 에뮬레이터에서 실제 동작 모드를 켜면: 배터리 SoC(100%)·차량 정보는 SDK 에서 읽힌다. Virtual Console 이 값 쓰기를 막아(`emulator_inactive`)
 계기판·기어 값이 바뀌지 않으므로 운행·주유 기록은 생기지 않는다. 그 흐름은 데모 모드로 보여 준다.
 
+## 음성·Gleo·내비 (정비 비용 입력과 앱이 먼저 묻는 대화)
+
+실제 동작 모드가 쓰는 Pleos SDK: `SpeechToText 3.3.1`, `TextToSpeech 3.3.1`, `NaviHelper 3.0.5` (Pleos Playground Maven, 설정 파일에 이미 있음).
+에뮬레이터(Pleos Connect v2.1.0)에 설치된 서비스: 음성 `ai.pleos.playground.caas 4.2.10`, 내비 `ai.pleos.playground.service.navi 3.0.4`, Gleo `ai.umos.ambientai`. SDK 가 요구하는 최소 버전 이상이다.
+
+- **음성(STT·TTS) 인증 정보:** 에뮬레이터에서 TTS·STT 를 요청하면 `Client credentials missing for ai.chagok.app` 로 서버가 거절하고, 기기 내 엔진은 에뮬레이터에 없어 `ON_DEVICE_ENGINE_ERROR` 가 난다. 그래서 인증 정보가 없으면 앱이 안드로이드 TTS 와 화면 입력으로 대신한다(설정 → 음성 점검).
+  Pleos Playground 프로젝트의 client ID·secret 이 있으면 `~/.gradle/gradle.properties` 에 `pleos.clientId=…`, `pleos.clientSecret=…` 를 적고 실제 모드를 다시 빌드한다 (저장소에는 넣지 않는다). **이 경로는 인증 정보가 없어 확인하지 못했다.**
+- **Gleo:** 앱 함수는 `app/src/main/assets/schema.json` 의 `ADD_EXPENSE`(종류·금액·곳), `QUERY_REPORT`(항목·기간·동작) 두 개이고 세 번째 칸은 비워 뒀다. Pleos 앱 마켓에 앱을 등록할 때 이 파일을 낸다.
+  앱은 인텐트 액션 `ADD_EXPENSE`/`QUERY_REPORT` 와 JSON extra `ACTION_PARAM` 으로 받는다고 가정했다(Gleo 가 실제로 보내는 모양은 확인하지 못했다). adb 로 시험:
+  ```bash
+  $WA -s emulator-5570 shell "am start -a ADD_EXPENSE -p ai.chagok.app -c android.intent.category.DEFAULT --es ACTION_PARAM '{\"category\":\"toll\",\"amount_won\":4800,\"place\":\"하이패스\"}'"
+  $WA -s emulator-5570 shell "am start -a QUERY_REPORT -p ai.chagok.app -c android.intent.category.DEFAULT --es ACTION_PARAM '{\"category\":\"toll\",\"period\":\"this_month\",\"action\":\"show\"}'"
+  ```
+- **내비 도착:** 실제 모드는 `NaviHelper` 의 `onDestinationArrived`/`onWayPointArrived` 로 도착을 받고, 도착 이벤트에 좌표가 없어 앱이 아는 현재 위치를 쓴다. 내비가 안 붙으면 운행이 끝난 위치로 대신 판정한다.
+- 시연 모드의 시연 컨트롤은 네 줄(줄마다 버튼 4개 이하)이다. 아래 줄: Gleo 음성 명령, 비용 입력 열기, 경유지 도착, 정비 시기 임박, 연동 내역 가져오기.
+
 ## 시연 자동 촬영 (GPU 창 모드, 주간 약 2분 30초 + 야간 약 1분)
 
 ```bash

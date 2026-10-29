@@ -291,6 +291,17 @@ class TaxScreen(private val a: MainActivity) {
         }
     }
 
+    /** 음성(Gleo) 요청으로 올해 운행기록부 PDF 미리보기를 연다 */
+    fun exportPdfForYear() {
+        val year = Calendar.getInstance(TaxReport.KST).apply { timeInMillis = c.gateway.now() }.get(Calendar.YEAR)
+        exportPdf(year, TaxReport.summarize(year, c.trips, c.expenses))
+    }
+
+    /** 음성(Gleo) 요청으로 올해 비용 명세 CSV 를 저장한다 */
+    fun exportExpensesForYear() {
+        exportExpenses(Calendar.getInstance(TaxReport.KST).apply { timeInMillis = c.gateway.now() }.get(Calendar.YEAR))
+    }
+
     private fun exportLogbook(year: Int) {
         val csv = TaxReport.logbookCsv(
             year, c.trips, c.gateway.info,

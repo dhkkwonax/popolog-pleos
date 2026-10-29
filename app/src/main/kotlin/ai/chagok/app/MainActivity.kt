@@ -7,6 +7,9 @@ import ai.chagok.app.model.ExpenseSource
 import ai.chagok.app.model.Powertrain
 import ai.chagok.app.model.Trip
 import ai.chagok.app.model.TripPurpose
+import ai.chagok.app.ui.askAmountPad
+import ai.chagok.app.ui.handleGleo
+import ai.chagok.app.ui.showExpenseInput
 import ai.chagok.app.ui.BtnStyle
 import ai.chagok.app.ui.C
 import ai.chagok.app.ui.DemoOverlay
@@ -35,8 +38,8 @@ import ai.chagok.app.ui.text
 import ai.chagok.app.ui.vbox
 import android.app.Activity
 import android.app.Dialog
-import android.content.ActivityNotFoundException
 import android.content.ContentValues
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.Configuration
@@ -46,7 +49,6 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Environment
 import android.provider.MediaStore
-import android.speech.RecognizerIntent
 import android.text.InputType
 import android.view.Gravity
 import android.view.View
@@ -91,7 +93,6 @@ class MainActivity : Activity() {
     private lateinit var rail: LinearLayout
     private lateinit var statusBar: LinearLayout
     private var renderedKey = ""
-    private var voiceCallback: ((String) -> Unit)? = null
 
     private val onChanged: () -> Unit = {
         updateStatus()
@@ -103,6 +104,8 @@ class MainActivity : Activity() {
         setTheme(android.R.style.Theme_Material_NoActionBar)
         super.onCreate(savedInstanceState)
         controller = AppController(this)
+        controller.typedInputHandler = ::speechSimDialog
+        controller.flows.openExpenseInput = { draft -> showExpenseInput(draft) }
         applyDayNight()
         // 스크린샷 자동 촬영용 빨리 감기 (am start --ei sim_speed N). 가상 차량에만 영향
         ai.chagok.app.vehicle.SimulatedVehicle.timeScale = intent.getIntExtra("sim_speed", 1).coerceIn(1, 8)
@@ -111,10 +114,18 @@ class MainActivity : Activity() {
         requestCarPermissions()
         controller.start()
         render()
+        window.decorView.post { handleGleo(intent) }
         // 실제 동작 모드는 처음 실행할 때 개인정보 처리 안내를 한 번 보여 준다 (설정에서 다시 볼 수 있다)
         if (!controller.demo && controller.db.setting(AppController.KEY_PRIVACY_ACK) != "1") {
             window.decorView.post { showPrivacyNotice(firstRun = true) }
         }
+    }
+
+    /** 이미 떠 있는 앱으로 Gleo 의 함수 호출이 오는 경우 */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleGleo(intent)
     }
 
     /** 개인정보 처리 안내 (초안). 처음 실행이면 확인 버튼으로 확인 기록을 남긴다 */
@@ -277,8 +288,9 @@ class MainActivity : Activity() {
 
     /** 창 밖으로 나가지 않게 잘라서 옮긴다 */
     private fun moveOverlayTo(x: Int, y: Int) {
-        val w = overlayHost.width.takeIf { it > 0 } ?: overlayHost.measuredWidth
-        val h = overlayHost.height.takeIf { it > 0 } ?: overlayHost.measuredHeight
+        // 접힌 크기로 남아 있는 width 대신, 방금 잰 펼친 크기까지 고려해 창 밖으로 나가지 않게 한다
+        val w = maxOf(overlayHost.width, overlayHost.measuredWidth)
+        val h = maxOf(overlayHost.height, overlayHost.measuredHeight)
         overlayLp().apply {
             leftMargin = x.coerceIn(0, maxOf(0, stage.width - w))
             topMargin = y.coerceIn(0, maxOf(0, stage.height - h))
@@ -396,6 +408,7 @@ class MainActivity : Activity() {
             expenses.count { it.pendingAmount }, expenses.sumOf { it.amountWon }, places.size,
             askTripId, askExpenseId, monthOffset, powertrain, lastNotice,
             driver?.driver?.id, driver?.method, driverGreeting, drivers,
+            assistant.current?.id, assistant.status, assistant.listening, flows.syncReview().size, flows.dueItems().size,
             (gateway as? ai.chagok.app.vehicle.SimulatedVehicle)?.busy,
             // 홈은 차량 카드(주행 중·누적·연료)가 화면 안에 있어 값이 바뀌면 다시 그린다. 다른 탭은 updateStatus 가 맡는다
             if (tab == Tab.HOME) listOf(isDriving, odoKm.toInt(), Math.round(energyPercent)) else null,
@@ -473,89 +486,29 @@ class MainActivity : Activity() {
     // ---- 음성 입력 ----
 
     /**
-     * 차량에서는 Pleos SpeechToText SDK로, 일반 기기에서는 안드로이드 음성 인식으로 받는다.
-     * 음성 인식이 없는 기기(에뮬레이터 등)는 문장을 직접 입력하는 창으로 대신한다.
+     * 차량에서는 Pleos STT 로 듣고, 듣지 못하는 환경(시연 모드·에뮬레이터)에서는 말한 내용을 화면에 입력받는다.
+     * 앱이 먼저 묻는 질문은 [AppController.assistant] 가 진행하고, 이 창은 그 대답(시연 응답)을 받는 자리다.
      */
-    fun listen(prompt: String, hint: String, onText: (String) -> Unit) {
-        controller.speak(prompt)
-        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ko-KR")
-            putExtra(RecognizerIntent.EXTRA_PROMPT, prompt)
-        }
-        voiceCallback = onText
-        try {
-            @Suppress("DEPRECATION")
-            startActivityForResult(intent, REQ_VOICE)
-        } catch (e: ActivityNotFoundException) {
-            voiceCallback = null
-            typedVoice(prompt, hint, onText)
-        } catch (e: SecurityException) {
-            voiceCallback = null
-            typedVoice(prompt, hint, onText)
-        }
-    }
-
-    private fun typedVoice(prompt: String, hint: String, onText: (String) -> Unit) {
-        val input = editText(hint, InputType.TYPE_CLASS_TEXT)
+    private fun speechSimDialog(question: String, onResult: (String?) -> Unit) {
+        val input = editText("말한 내용을 입력", InputType.TYPE_CLASS_TEXT)
         val body = vbox {
             setPadding(dp(24), dp(8), dp(24), dp(0))
-            add(text("이 기기에 음성 인식이 없어 문장으로 입력합니다. 차량에서는 Pleos STT로 바로 듣습니다.", 15f, C.SUB))
-            add(input, top = 16)
+            add(text(question, 16f, C.TEXT))
+            add(text("이 화면은 시연용이에요. 차량에서는 마이크로 바로 듣습니다.", 14f, C.SUB), top = 6)
+            add(input, top = 14)
         }
-        dialog("🎤 $prompt", body, "확인") { onText(input.text.toString()) }
+        dialog("🎤 말하기(시연)", body, "확인") { onResult(input.text.toString().ifBlank { null }) }
     }
 
-    @Deprecated("Activity result API는 AndroidX가 필요해 프레임워크 API를 쓴다")
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        @Suppress("DEPRECATION")
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != REQ_VOICE) return
-        val cb = voiceCallback ?: return
-        voiceCallback = null
-        val text = data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
-        if (resultCode == RESULT_OK && text != null) cb(text)
-    }
-
-    /** 주유·충전 금액을 음성으로 받는다 */
-    fun askAmountByVoice(e: Expense) {
-        listen("${e.category.label} 금액을 말씀해 주세요", "예: 칠만 삼천 원") { said ->
-            val amount = KoreanAmountParser.parse(said)
-            if (amount == null) {
-                toast("금액을 알아듣지 못했어요. 다시 말하거나 직접 입력해 주세요")
-            } else {
-                controller.setExpenseAmount(e.id, amount, ExpenseSource.VOICE)
-            }
-        }
+    /** 음성 대화가 아닌 곳에서 짧게 듣기가 필요할 때 */
+    fun listen(prompt: String, hint: String, onText: (String) -> Unit) {
+        controller.speak(prompt)
+        controller.voice.listen(prompt) { said -> said?.let(onText) }
     }
 
     fun askAmountByKeypad(e: Expense) {
-        val input = editText("금액 (원)", InputType.TYPE_CLASS_NUMBER)
-        val body = vbox {
-            setPadding(dp(24), dp(8), dp(24), 0)
-            e.quantity?.let {
-                add(text("감지량 약 ${AppController.fmt1(it)}${if (e.category.name == "CHARGE") "kWh" else "L"} · ${e.memo}", 15f, C.SUB))
-            }
-            add(input, top = 12)
-        }
-        dialog("${e.category.label} 금액 입력", body, "저장") {
-            val v = input.text.toString().toLongOrNull()
-            if (v != null && v > 0) controller.setExpenseAmount(e.id, v, ExpenseSource.MANUAL)
-        }
-    }
-
-    /** 미분류 운행의 목적을 음성으로 묻는다 */
-    fun askPurposeByVoice(t: Trip) {
-        listen("업무 운행이었나요?", "예: 거래처 미팅 / 개인 용무 / 출근") { said ->
-            val p = when {
-                listOf("출근", "퇴근", "출퇴근").any { it in said } -> TripPurpose.COMMUTE
-                listOf("개인", "비업무", "아니", "사적").any { it in said } -> TripPurpose.PERSONAL
-                listOf("업무", "미팅", "거래처", "출장", "납품", "응", "네", "맞아").any { it in said } -> TripPurpose.BUSINESS
-                else -> null
-            }
-            if (p == null) toast("목적을 알아듣지 못했어요. 버튼으로 골라 주세요")
-            else controller.classifyTrip(t.id, p, ClassifiedBy.VOICE)
-        }
+        val detail = e.quantity?.let { "감지량 약 ${AppController.fmt1(it)}${if (e.category.name == "CHARGE") "kWh" else "L"} · ${e.memo}" }.orEmpty()
+        askAmountPad("${e.category.label} 금액 입력", detail) { v -> controller.setExpenseAmount(e.id, v, ExpenseSource.MANUAL) }
     }
 
     fun choosePurpose(t: Trip) {
@@ -602,9 +555,26 @@ class MainActivity : Activity() {
 
     // ---- 공용 다이얼로그 ----
 
+    fun hideKeyboard(v: View) {
+        (getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager).hideSoftInputFromWindow(v.windowToken, 0)
+        v.clearFocus()
+    }
+
     fun editText(hint: String, type: Int, value: String = ""): EditText = EditText(this).apply {
         this.hint = hint
         inputType = type
+        // 가로 화면에서 차량 키보드가 입력창을 전체 화면으로 덮지 않게 한다 (확인 버튼이 가려진다)
+        imeOptions = android.view.inputmethod.EditorInfo.IME_FLAG_NO_EXTRACT_UI or android.view.inputmethod.EditorInfo.IME_ACTION_DONE
+        // 엔터·완료는 다음 칸으로 넘어가지 않고 키보드를 닫는다 (키보드가 대화상자의 확인 버튼을 가리지 않게)
+        setOnEditorActionListener { v, _, _ -> hideKeyboard(v); true }
+        setOnKeyListener { v, keyCode, ev ->
+            if (keyCode == android.view.KeyEvent.KEYCODE_ENTER) {
+                if (ev.action == android.view.KeyEvent.ACTION_UP) hideKeyboard(v)
+                true
+            } else {
+                false
+            }
+        }
         setText(value)
         textSize = sp(20f)
         setTextColor(C.TEXT)
@@ -639,6 +609,8 @@ class MainActivity : Activity() {
             })
         }
         d.setContentView(panel)
+        // 바깥을 눌러 실수로 닫히지 않게 한다 (닫기 버튼이 있다)
+        d.setCanceledOnTouchOutside(false)
         d.window?.apply {
             setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
             setLayout(minOf(dp(640), (resources.displayMetrics.widthPixels * 0.9).toInt()), android.view.WindowManager.LayoutParams.WRAP_CONTENT)
@@ -758,7 +730,6 @@ class MainActivity : Activity() {
     }
 
     companion object {
-        private const val REQ_VOICE = 41
         private const val REQ_CAR_PERMISSIONS = 42
         private const val KEY_OVERLAY_POS = "demo_overlay_pos"
         const val THEME_AUTO = "auto"

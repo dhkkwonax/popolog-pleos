@@ -17,7 +17,7 @@ import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 
 /** 프레임워크 SQLite만 쓰는 저장소 (외부 라이브러리 없이 빌드하기 위해 Room 대신 사용) */
-class ChagokDb(context: Context) : SQLiteOpenHelper(context, "chagok.db", null, 3) {
+class ChagokDb(context: Context) : SQLiteOpenHelper(context, "chagok.db", null, 4) {
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
@@ -32,10 +32,11 @@ class ChagokDb(context: Context) : SQLiteOpenHelper(context, "chagok.db", null, 
         )
         db.execSQL(
             "CREATE TABLE expense (id INTEGER PRIMARY KEY AUTOINCREMENT, time INTEGER, category TEXT, amount INTEGER, " +
-                "odo REAL, quantity REAL, memo TEXT, source TEXT, pending INTEGER)",
+                "odo REAL, quantity REAL, memo TEXT, source TEXT, pending INTEGER, shop TEXT NOT NULL DEFAULT '')",
         )
         db.execSQL("CREATE TABLE setting (k TEXT PRIMARY KEY, v TEXT)")
         createIntegrityTables(db)
+        createSyncTable(db)
     }
 
     /** v2: 위변조 검증용 해시체인(ledger)·일일 앵커(anchor). 체인은 AppController.start 가 기존 기록으로 처음 만든다 */
@@ -45,6 +46,18 @@ class ChagokDb(context: Context) : SQLiteOpenHelper(context, "chagok.db", null, 
             db.execSQL("ALTER TABLE trip ADD COLUMN logbook_user TEXT NOT NULL DEFAULT ''")
             db.execSQL("ALTER TABLE trip ADD COLUMN logbook_department TEXT NOT NULL DEFAULT ''")
         }
+        // v4: 비용에 결제한 곳(shop), 외부 연동 내역 보관함(sync_item)
+        if (oldVersion < 4) {
+            db.execSQL("ALTER TABLE expense ADD COLUMN shop TEXT NOT NULL DEFAULT ''")
+            createSyncTable(db)
+        }
+    }
+
+    private fun createSyncTable(db: SQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE sync_item (id INTEGER PRIMARY KEY AUTOINCREMENT, external_id TEXT UNIQUE, time INTEGER, " +
+                "category TEXT, amount INTEGER, shop TEXT, odo REAL, memo TEXT, state TEXT)",
+        )
     }
 
     private fun createIntegrityTables(db: SQLiteDatabase) {
@@ -105,6 +118,7 @@ class ChagokDb(context: Context) : SQLiteOpenHelper(context, "chagok.db", null, 
                 id = c.long("id"), time = c.long("time"), category = ExpenseCategory.valueOf(c.str("category")),
                 amountWon = c.long("amount"), odoKm = c.dblOrNull("odo"), quantity = c.dblOrNull("quantity"),
                 memo = c.str("memo"), source = ExpenseSource.valueOf(c.str("source")), pendingAmount = c.int("pending") == 1,
+                shop = c.str("shop"),
             )
         }
     }
@@ -114,6 +128,7 @@ class ChagokDb(context: Context) : SQLiteOpenHelper(context, "chagok.db", null, 
         if (e.odoKm == null) putNull("odo") else put("odo", e.odoKm)
         if (e.quantity == null) putNull("quantity") else put("quantity", e.quantity)
         put("memo", e.memo); put("source", e.source.name); put("pending", if (e.pendingAmount) 1 else 0)
+        put("shop", e.shop)
     })
 
     fun deleteExpense(id: Long) {
@@ -159,6 +174,34 @@ class ChagokDb(context: Context) : SQLiteOpenHelper(context, "chagok.db", null, 
         }, SQLiteDatabase.CONFLICT_REPLACE)
     }
 
+    // ---- sync_item (외부 연동 내역 보관함) ----
+    fun syncItems(state: String? = null): List<SyncItem> =
+        readableDatabase.rawQuery(
+            "SELECT * FROM sync_item" + (if (state != null) " WHERE state=?" else "") + " ORDER BY time DESC",
+            if (state != null) arrayOf(state) else null,
+        ).use { c ->
+            c.map {
+                SyncItem(
+                    id = c.long("id"), externalId = c.str("external_id"), time = c.long("time"),
+                    category = ExpenseCategory.valueOf(c.str("category")), amountWon = c.long("amount"),
+                    shop = c.str("shop"), odoKm = c.dblOrNull("odo"), memo = c.str("memo"), state = c.str("state"),
+                )
+            }
+        }
+
+    /** 이미 받은 externalId 면 넣지 않는다 (중복 제거). 새로 넣었으면 true */
+    fun addSyncItem(i: SyncItem): Boolean {
+        val id = writableDatabase.insertWithOnConflict("sync_item", null, ContentValues().apply {
+            put("external_id", i.externalId); put("time", i.time); put("category", i.category.name); put("amount", i.amountWon)
+            put("shop", i.shop); if (i.odoKm == null) putNull("odo") else put("odo", i.odoKm); put("memo", i.memo); put("state", i.state)
+        }, SQLiteDatabase.CONFLICT_IGNORE)
+        return id != -1L
+    }
+
+    fun setSyncState(id: Long, state: String) {
+        writableDatabase.update("sync_item", ContentValues().apply { put("state", state) }, "id=?", arrayOf(id.toString()))
+    }
+
     // ---- setting ----
     fun setting(key: String, default: String = ""): String =
         readableDatabase.rawQuery("SELECT v FROM setting WHERE k=?", arrayOf(key)).use { c ->
@@ -180,7 +223,7 @@ class ChagokDb(context: Context) : SQLiteOpenHelper(context, "chagok.db", null, 
     fun clearAll() {
         writableDatabase.apply {
             delete("place", null, null); delete("trip", null, null); delete("expense", null, null); delete("setting", null, null)
-            delete("ledger", null, null); delete("anchor", null, null)
+            delete("ledger", null, null); delete("anchor", null, null); delete("sync_item", null, null)
         }
     }
 

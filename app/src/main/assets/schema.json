@@ -1,0 +1,64 @@
+{
+  "packageName": "ai.chagok.app",
+  "appDescription": "A vehicle expense and driving log app that records business trips and car costs.",
+  "invokeWord": "포포로그",
+  "version": "0.1.0",
+  "actionCalls": [
+    {
+      "type": "function",
+      "function": {
+        "name": "ADD_EXPENSE",
+        "description": "Record a vehicle expense with its type, amount and the place where it was paid.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "category": {
+              "type": "string",
+              "enum": ["maintenance", "toll", "parking", "carwash", "fuel", "charge", "other"],
+              "description": "Type of the expense."
+            },
+            "amount_won": {
+              "type": "number",
+              "description": "Amount paid in Korean won."
+            },
+            "place": {
+              "type": "string",
+              "description": "Name of the shop, station or parking lot where it was paid."
+            }
+          },
+          "required": ["category", "amount_won"]
+        },
+        "component": "activity"
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "QUERY_REPORT",
+        "description": "Show or export the vehicle expense report for a period and an expense type.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "category": {
+              "type": "string",
+              "enum": ["all", "maintenance", "toll", "parking", "carwash", "fuel", "charge", "other"],
+              "description": "Type of the expense to report."
+            },
+            "period": {
+              "type": "string",
+              "enum": ["today", "this_week", "this_month", "last_month", "this_year"],
+              "description": "Period to report."
+            },
+            "action": {
+              "type": "string",
+              "enum": ["show", "export_pdf", "export_csv"],
+              "description": "Whether to show the totals on screen or export a file."
+            }
+          },
+          "required": ["period"]
+        },
+        "component": "activity"
+      }
+    }
+  ]
+}

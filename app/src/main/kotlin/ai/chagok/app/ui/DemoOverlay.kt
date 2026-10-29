@@ -50,11 +50,59 @@ class DemoOverlay(private val a: MainActivity) {
         setOnClickListener { onToggle() }
     }
 
-    /** 펼친 상태: 한 줄 */
-    private fun bar(sim: SimulatedVehicle, onToggle: () -> Unit): View = a.hbox(Gravity.CENTER_VERTICAL) {
+    /** 펼친 상태: 네 줄(좁은 창에서도 들어가게 줄마다 버튼 넷 이하). 운행·차량 / 기록·검증 / 음성·비용 / 연동·차종·접기 */
+    private fun bar(sim: SimulatedVehicle, onToggle: () -> Unit): View = a.vbox {
         background = a.rounded(PANEL_BG, 14, PANEL_LINE)
         setPadding(px(6), px(6), px(6), px(6))
         alpha = 0.9f
+        addView(driveRow(sim, onToggle))
+        addView(recordRow(sim), android.widget.LinearLayout.LayoutParams(WRAP, WRAP).apply { topMargin = px(6) })
+        addView(toolsRow(sim), android.widget.LinearLayout.LayoutParams(WRAP, WRAP).apply { topMargin = px(6) })
+        addView(miscRow(sim, onToggle), android.widget.LinearLayout.LayoutParams(WRAP, WRAP).apply { topMargin = px(6) })
+    }
+
+    /** 아랫줄: 음성(Gleo)·비용 입력·도착 질문·정비 시기·연동 내역 */
+    private fun toolsRow(sim: SimulatedVehicle): View = a.hbox(Gravity.CENTER_VERTICAL) {
+        fun put(v: View, gap: Int = 4) = addView(v, android.widget.LinearLayout.LayoutParams(px(TOUCH), px(TOUCH)).apply { marginStart = px(gap) })
+        val busy = sim.busy || !sim.parked
+        addView(label("음성·비용", 12f, C.SUB, bold = true).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(px(8), 0, px(4), 0) })
+        // Gleo 가 앱 함수를 부르는 것과 같은 인텐트를 보낸다
+        put(tool(Ic.MIC, "Gleo 음성 명령 시연", true) { gleoDialog() }, 2)
+        put(tool(Ic.PLUS, "비용 입력 열기", !busy) { a.showExpenseInput() })
+        // 내비가 경유지에 도착했다고 알린다 (정차 중이면 바로 묻고, 주행 중이면 세운 뒤에 묻는다)
+        put(tool(Ic.PIN, "경유지 도착 (내비 이벤트)", true) {
+            (c.navi as? ai.chagok.app.nav.SimulatedNavi)?.arrive(
+                ai.chagok.app.nav.Arrival(ai.chagok.app.nav.Arrival.Kind.WAYPOINT, "미사 휴게소", "경기 하남시 미사대로", c.lat, c.lng),
+            )
+            a.toast("경유지 도착을 알렸어요")
+        })
+        put(tool(Ic.WRENCH, "정비 시기 임박", !busy) { c.flows.demoMakeDue(); a.toast("엔진오일 교체 주기를 짧게 줄여 시기가 된 것으로 만들었어요") })
+    }
+
+    private fun gleoDialog() {
+        val samples = listOf(
+            "정비 12만 원, 스피드메이트" to ("ADD_EXPENSE" to """{"category":"maintenance","amount_won":120000,"place":"스피드메이트 판교점"}"""),
+            "주차비 6천 원" to ("ADD_EXPENSE" to """{"category":"parking","amount_won":6000,"place":"판교역 공영주차장"}"""),
+            "통행료 (금액은 못 들었을 때)" to ("ADD_EXPENSE" to """{"category":"toll"}"""),
+            "이번 달 정비비 알려 줘" to ("QUERY_REPORT" to """{"category":"maintenance","period":"this_month","action":"show"}"""),
+            "올해 운행기록부 PDF 내보내기" to ("QUERY_REPORT" to """{"period":"this_year","action":"export_pdf"}"""),
+            "이번 달 비용 CSV 내보내기" to ("QUERY_REPORT" to """{"period":"this_month","action":"export_csv"}"""),
+        )
+        var dlg: android.app.Dialog? = null
+        val body = a.vbox {
+            setPadding(a.dp(24), a.dp(8), a.dp(24), a.dp(8))
+            add(a.text("Gleo 가 앱 함수를 부를 때와 같은 호출을 보냅니다. 차량에서는 말하면 Gleo 가 이 값을 채웁니다.", 15f, C.SUB))
+            for ((say, call) in samples) {
+                add(a.choice("“$say”", false) {
+                    dlg?.dismiss()
+                    a.simulateGleo(call.first, call.second)
+                }, top = 10)
+            }
+        }
+        dlg = a.dialog("Gleo 음성 명령 시연", body, null) {}
+    }
+
+    private fun driveRow(sim: SimulatedVehicle, onToggle: () -> Unit): View = a.hbox(Gravity.CENTER_VERTICAL) {
         // 본문 add() 는 큰 화면 배율이 걸린 여백을 쓰므로, 여기서는 배율 없는 간격으로 붙인다
         // 시연자도 손가락으로 누르므로 터치 영역은 44dp
         fun put(v: View, w: Int, gap: Int) = addView(v, android.widget.LinearLayout.LayoutParams(w, px(TOUCH)).apply { marginStart = px(gap) })
@@ -69,26 +117,46 @@ class DemoOverlay(private val a: MainActivity) {
         put(tool(Ic.PARKING, "도중 정차 (6분)", sim.driving) { sim.stopFor(6) }, px(TOUCH), 4)
         // 시동 끄고 다시 켜기: 주행 중이면 그 자리에서 운행 종료, 켜면 운전자를 다시 판별
         put(tool(Ic.CAR, "시동 끄고 다시 켜기", !sim.refilling) { c.demoRestartEngine() }, px(TOUCH), 4)
+    }
+
+    /** 마지막 줄: 외부 연동 가져오기, 차종 전환, 접기 */
+    private fun miscRow(sim: SimulatedVehicle, onToggle: () -> Unit): View = a.hbox(Gravity.CENTER_VERTICAL) {
+        fun put(v: View, gap: Int = 4) = addView(v, android.widget.LinearLayout.LayoutParams(px(TOUCH), px(TOUCH)).apply { marginStart = px(gap) })
+        val busy = sim.busy || !sim.parked
+        val ev = sim.info.powertrain == Powertrain.EV
+        addView(label("연동·차종", 12f, C.SUB, bold = true).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(px(8), 0, px(4), 0) })
+        put(tool(Ic.RECEIPT, "연동 내역 가져오기", true) {
+            val r = c.flows.sync(c.expenseSource)
+            a.toast("연동 내역 ${r.added}건을 가져왔어요" + if (r.duplicates > 0) " · 이미 받은 ${r.duplicates}건 제외" else "")
+            a.select(MainActivity.Tab.LEDGER)
+        }, 2)
         // 차종을 바꾸면 주유 대신 충전 감지(배터리 SoC 상승)를 보여 준다
         put(tool(Ic.SWAP, if (ev) "가솔린 차로 전환" else "전기차로 전환", !busy) {
             c.switchPowertrain(if (ev) Powertrain.ICE else Powertrain.EV)
-        }, px(TOUCH), 4)
+        })
+        put(tool(Ic.CHEVRON_DOWN, "시연 컨트롤 접기", true) { onToggle() })
+    }
+
+    /** 기록·검증 줄: 위변조 시연, 하루 마감, 앱 끈 채 운행, 초기화 */
+    private fun recordRow(sim: SimulatedVehicle): View = a.hbox(Gravity.CENTER_VERTICAL) {
+        fun put(v: View, gap: Int = 4) = addView(v, android.widget.LinearLayout.LayoutParams(px(TOUCH), px(TOUCH)).apply { marginStart = px(gap) })
+        val busy = sim.busy || !sim.parked
+        addView(label("기록·검증", 12f, C.SUB, bold = true).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(px(8), 0, px(4), 0) })
         // 위변조 검증 시연: DB 의 지난 운행 하나를 몰래 고쳤다가 되돌린다. 결과는 세무 리포트의 '기록 무결성' 카드에서 본다
         val forged = c.forgedSeq != null
         put(tool(if (forged) Ic.CHECK else Ic.ALERT, if (forged) "위조 되돌리기" else "기록 위조해 보기", !busy) {
             if (forged) c.undoForge() else c.forgeRecord()
             a.select(MainActivity.Tab.TAX)
-        }, px(TOUCH), 4)
+        })
         // 하루 마감: 오늘 마지막 해시를 앵커로 묶는다 (타임스탬프 기관은 시뮬레이션)
-        put(tool(Ic.SHIELD, "하루 마감 (앵커)", !busy) { anchorToday(c, a) }, px(TOUCH), 4)
+        put(tool(Ic.SHIELD, "하루 마감 (앵커)", !busy) { anchorToday(c, a) })
         // 앱을 끈 채 달린 거리: 계기판만 12.4km 늘어난 채로 다시 시동해 보정 운행이 생기는 것을 보여 준다
-        put(tool(Ic.SWAP, "앱 끈 채 운행 (12km)", !busy) { c.demoOfflineDrive(12.4) }, px(TOUCH), 4)
+        put(tool(Ic.SWAP, "앱 끈 채 운행 (12km)", !busy) { c.demoOfflineDrive(12.4) })
         put(tool(Ic.RESET, "시연 데이터 초기화", !busy) {
             a.dialog("시연 데이터를 초기화할까요?", a.text("  지금까지의 기록을 지우고 6월 출고 이후 예시 기록을 다시 만듭니다.", 16f, C.SUB), "초기화") {
                 c.resetDemo()
             }
-        }, px(TOUCH), 4)
-        put(tool(Ic.CHEVRON_DOWN, "시연 컨트롤 접기", true) { onToggle() }, px(TOUCH), 2)
+        })
     }
 
     /**
@@ -103,6 +171,7 @@ class DemoOverlay(private val a: MainActivity) {
             c.places.firstOrNull { it.kind == PlaceKind.CLIENT }?.let { add(go("→ ${it.name.substringBefore(" (")}", it.lat, it.lng)) }
             c.places.firstOrNull { it.kind == PlaceKind.HOME }?.let { add(go("→ 집", it.lat, it.lng)) }
             add(go("→ ${DemoSeed.MALL_NAME}", DemoSeed.MALL_LAT, DemoSeed.MALL_LNG))
+            add(go("→ ${DemoSeed.REST_NAME}", DemoSeed.REST_LAT, DemoSeed.REST_LNG))
             c.drivers.filter { it.id != c.driver?.driver?.id && it.seatPosition != null }.forEach { d ->
                 add(Dest("${d.name} 탑승") { sim.seatDriver(d.seatPosition!!) })
             }

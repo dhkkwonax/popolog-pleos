@@ -27,7 +27,13 @@ import ai.chagok.app.vehicle.VehicleGateway
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
-import android.speech.tts.TextToSpeech
+import ai.chagok.app.nav.Arrival
+import ai.chagok.app.nav.NaviBridge
+import ai.chagok.app.nav.NaviFactory
+import ai.chagok.app.nav.PlaceCandidate
+import ai.chagok.app.voice.Assistant
+import ai.chagok.app.voice.VoiceFactory
+import ai.chagok.app.voice.VoiceIo
 import java.util.Locale
 import java.util.concurrent.Executors
 
@@ -98,8 +104,31 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
     private val handler = Handler(Looper.getMainLooper())
     private lateinit var recorder: TripRecorder
     private lateinit var energy: EnergyEventDetector
-    private var tts: TextToSpeech? = null
-    private var ttsReady = false
+
+    /** 말하기·듣기. 차량은 Pleos TTS·STT, 시연 모드는 안드로이드 TTS 와 화면 입력 */
+    lateinit var voice: VoiceIo
+        private set
+
+    /** 내비(도착 이벤트·즐겨찾기). 시연 모드는 시뮬레이션 */
+    lateinit var navi: NaviBridge
+        private set
+
+    /** 말한 내용을 화면에서 입력받는 창을 여는 훅 (MainActivity 가 정한다) */
+    var typedInputHandler: ((String, (String?) -> Unit) -> Unit)? = null
+
+    /** 앱이 먼저 묻는 질문 진행기. 정차 중에만 묻는다 */
+    val assistant = Assistant({ voice }, { isStopped() }, { notifyChanged() })
+    val flows = Flows(this)
+
+    /** 비용 내역을 가져오는 곳. 실제 경로가 확인되면 어댑터만 바꿔 끼운다. 시연 모드는 샘플, 실제 모드는 아직 없음 */
+    val expenseSource: ai.chagok.app.core.ExpenseSource by lazy {
+        if (demo) ai.chagok.app.core.SampleExpenseSource { gateway.now() } else ai.chagok.app.core.NoExpenseSource
+    }
+    private var lastNaviArrival = 0L
+
+    private fun isStopped() = ::recorder.isInitialized && !recorder.isDriving
+
+    fun notifyUi() = notifyChanged()
 
     private var tickDay: String? = null
 
@@ -118,7 +147,7 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
         }
     }
 
-    val isDriving: Boolean get() = recorder.isDriving
+    val isDriving: Boolean get() = ::recorder.isInitialized && recorder.isDriving
     val liveTripKm: Double get() = recorder.currentTrip?.let { odoKm - it.odoKm } ?: 0.0
 
     val powertrain: Powertrain
@@ -160,13 +189,23 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
         // 앱이 꺼져 있던 동안 지난 날도 마감한다
         anchorPastDays(System.currentTimeMillis())
         reload()
-        tts = TextToSpeech(context.applicationContext) { status ->
-            ttsReady = status == TextToSpeech.SUCCESS
-            if (ttsReady) tts?.language = Locale.KOREAN
-        }
+        voice = VoiceFactory.create(context) { typedInputHandler }
+        navi = NaviFactory.create(context)
+        navi.start(object : NaviBridge.Listener {
+            override fun onArrived(a: Arrival) {
+                lastNaviArrival = System.currentTimeMillis()
+                handler.post { flows.onArrived(a) }
+            }
+
+            override fun onCandidates(list: List<PlaceCandidate>) {
+                flows.candidates = list
+            }
+        })
         connectGateway()
         handler.post(ticker)
         stampPending()
+        // 정비 시기가 된 항목이 있으면 시동 직후 정차 상태에서 한 번 알린다
+        handler.postDelayed({ flows.checkMaintenance() }, MAINT_CHECK_DELAY_MS)
     }
 
     fun stop() {
@@ -178,8 +217,9 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
         if (odoKm > 0) db.setSetting(KEY_LAST_ODO, odoKm.toString())
         if (demo) saveSimState()
         gateway.stop()
-        tts?.shutdown()
-        tts = null
+        assistant.clear()
+        navi.stop()
+        voice.shutdown()
     }
 
     /** [fresh] 가 false 면 진행 중인 운행·주유 감지 상태를 이어 간다 (같은 차에 다시 붙을 때) */
@@ -223,7 +263,8 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
         seatAtIdentify = seatPosition
         db.setSetting(KEY_LAST_DRIVER, r.driver.id)
         driverGreeting = if (r.method == DriverMethod.MANUAL) "${r.driver.name}님으로 바꿨어요" else "${r.driver.name}님으로 인식했어요"
-        if (r.method != DriverMethod.MANUAL) speak("${r.driver.name}님, 안녕하세요.")
+        // 인식한 결과를 말하고 맞는지 묻는다 (틀리면 누구인지 다시 묻는다)
+        flows.confirmDriver(r.driver.name, r.method)
         handler.removeCallbacks(clearGreeting)
         handler.postDelayed(clearGreeting, GREETING_MS)
         notifyChanged()
@@ -453,7 +494,7 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
     }
 
     fun speak(text: String) {
-        if (ttsReady) tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "chagok")
+        if (::voice.isInitialized) voice.speak(text)
     }
 
     // ---- VehicleGateway.Listener ----
@@ -476,6 +517,10 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
     override fun onParkingBrake(engaged: Boolean) {
         parkingBrake = engaged
         recorder.onParkingBrake(engaged, gateway.now())
+        if (engaged) {
+            assistant.pump()
+            flows.checkMaintenance()
+        }
         notifyChanged()
     }
 
@@ -567,6 +612,8 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
         // 시연 자동 촬영이 logcat 으로 운행 시작·끝을 확인한다 (운행 중에는 화면 읽기가 느려 쓸 수 없다)
         if (demo) android.util.Log.i("Popolog", "trip started")
         lastNotice = "운행 시작 · 계기판 ${fmtKm(start.odoKm)}"
+        // 주행 중에는 묻지 않는다: 하던 질문은 멈추고 정차하면 이어서 묻는다
+        assistant.pause()
         notifyChanged()
     }
 
@@ -588,10 +635,17 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
         record(Integrity.Kind.TRIP, id, Integrity.canonical(trip.copy(id = id)))
         db.setSetting(KEY_LAST_ODO, end.odoKm.toString())
         reload()
+        // 도착한 곳이 처음 가 보는 곳이면 먼저 저장할지 묻는다 (저장하면 목적 분류에 쓰인다)
+        val arrival = Arrival(Arrival.Kind.DESTINATION, name = c.toPlace?.name.orEmpty(), lat = end.lat, lng = end.lng)
+        if (!navi.providesArrival) flows.onArrived(arrival)
+        else handler.postDelayed({
+            // 내비가 도착을 알려 주지 않았으면 운행 종료 위치로 대신한다
+            if (System.currentTimeMillis() - lastNaviArrival > NAVI_ARRIVAL_WAIT_MS * 2) flows.onArrived(arrival)
+        }, NAVI_ARRIVAL_WAIT_MS)
         if (c.purpose == TripPurpose.UNCLASSIFIED) {
             askTripId = id
             lastNotice = "운행 ${fmtKm(trip.distanceKm)} 기록 · 목적 확인 필요"
-            speak("${fmtKmSpoken(trip.distanceKm)} 운행을 기록했어요. 업무 운행이었나요?")
+            flows.askPurpose(trip.copy(id = id))
         } else {
             lastNotice = "${trip.purpose.label} ${fmtKm(trip.distanceKm)} 자동 기록 · ${c.reason}"
             speak("${trip.toName}, ${trip.purpose.label} 운행으로 기록했어요.")
@@ -612,7 +666,7 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
         askExpenseId = db.upsert(expense).also { record(Integrity.Kind.EXPENSE, it, Integrity.canonical(expense.copy(id = it))) }
         reload()
         lastNotice = if (ev) "충전 감지 · 약 ${fmt1(qty)}kWh" else "주유 감지 · 약 ${fmt1(qty)}L"
-        speak(if (ev) "충전이 감지됐어요. 결제 금액을 말씀해 주세요." else "주유가 감지됐어요. 결제 금액을 말씀해 주세요.")
+        flows.askAmount(expense.copy(id = askExpenseId ?: 0L))
         notifyChanged()
     }
 
@@ -669,6 +723,21 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
         notifyChanged()
     }
 
+    /** 확인 카드에서 저장을 누른 비용 초안을 장부에 넣는다 */
+    fun saveDraft(d: ai.chagok.app.model.ExpenseDraft): Boolean {
+        val amount = d.amountWon ?: return false
+        val e = Expense(
+            time = gateway.now(), category = d.category, amountWon = amount, odoKm = odoKm.takeIf { it > 0 },
+            memo = d.memoText, source = d.source, shop = d.shop.trim(),
+        )
+        saveExpense(e)
+        if (d.category == ExpenseCategory.MAINTENANCE) flows.onMaintenanceSaved(e.memo)
+        lastNotice = "${d.category.label} ${won(amount)} 장부 기록"
+        speak("${d.category.label} ${amountSpoken(amount)} 기록했어요.")
+        notifyChanged()
+        return true
+    }
+
     fun deleteExpense(id: Long) {
         db.deleteExpense(id)
         record(Integrity.Kind.EXPENSE_DEL, id, "deleted|$id")
@@ -722,6 +791,8 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
         const val GAP_MEMO = "앱 꺼짐 구간 · 계기판 보정"
 
         private const val IDENTIFY_DELAY_MS = 1_500L
+        private const val MAINT_CHECK_DELAY_MS = 4_000L
+        private const val NAVI_ARRIVAL_WAIT_MS = 8_000L
         private const val GREETING_MS = 12_000L
 
         fun fmtKm(km: Double) = String.format(Locale.US, "%,.1f km", km)

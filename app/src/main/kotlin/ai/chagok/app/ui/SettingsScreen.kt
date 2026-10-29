@@ -3,6 +3,7 @@ package ai.chagok.app.ui
 import ai.chagok.app.AppController
 import ai.chagok.app.MainActivity
 import ai.chagok.app.core.Taxpayer
+import android.view.Gravity
 import android.text.InputType
 import android.view.View
 
@@ -52,6 +53,50 @@ class SettingsScreen(private val a: MainActivity) {
             }
             // 실제 동작 모드는 예시 운전자가 없으므로 여기서 등록한다
             add(a.button("이용자·운전자 추가", BtnStyle.SECONDARY, icon = Ic.PERSON) { addDriverDialog() }, WRAP, WRAP, top = 14)
+        }, top = 16)
+
+        add(a.card {
+            add(a.text("음성", 20f, bold = true))
+            add(a.text("앱이 먼저 묻고 대답을 듣는 방식: ${c.voice.engine}", 15f, C.SUB), top = 6)
+            add(a.text(if (c.voice.hearsVoice) "마이크로 듣습니다" else "이 환경에서는 마이크로 듣지 못해 화면 입력으로 대신합니다", 14f, C.DIM), top = 2)
+            add(a.button("음성 점검", BtnStyle.SECONDARY, icon = Ic.MIC) {
+                c.flows.voiceCheck { msg -> a.toast(msg) }
+                a.select(MainActivity.Tab.HOME)
+            }, WRAP, WRAP, top = 14)
+        }, top = 16)
+
+        add(a.card {
+            add(a.text("정비 주기", 20f, bold = true))
+            add(a.text("계기판 거리가 주기를 넘으면 차를 세웠을 때 알려 드려요", 15f, C.SUB), top = 6)
+            val plan = c.flows.plan()
+            plan.forEachIndexed { i, item ->
+                if (i > 0) add(a.divider(), top = 12)
+                add(a.hbox(Gravity.CENTER_VERTICAL) {
+                    add(a.vbox {
+                        add(a.text(item.name, 18f, bold = true))
+                        val last = c.flows.lastDoneOdo(item.name)?.let { "마지막 ${AppController.fmtKm(it)}" } ?: "정비 기록 없음"
+                        add(a.text("${String.format(java.util.Locale.US, "%,d", item.intervalKm)}km마다 · $last", 15f, C.SUB), top = 4)
+                    }, 0, WRAP, 1f)
+                    add(a.button("주기 수정", BtnStyle.GHOST) {
+                        a.askAmountPad("${item.name} 교체 주기", unit = "km") { km ->
+                            c.flows.savePlan(plan.map { if (it.name == item.name) it.copy(intervalKm = km.toInt()) else it })
+                            a.render()
+                        }
+                    }, WRAP, WRAP, end = 8)
+                    if (plan.size > 1) add(a.button("삭제", BtnStyle.GHOST) {
+                        c.flows.savePlan(plan.filter { it.name != item.name })
+                        a.render()
+                    }, WRAP, WRAP)
+                }, top = 12)
+            }
+            add(a.button("항목 추가", BtnStyle.SECONDARY, icon = Ic.PLUS) {
+                a.askTextInput("정비 항목 이름", "예: 에어컨 필터") { name ->
+                    a.askAmountPad("$name 교체 주기", unit = "km") { km ->
+                        c.flows.savePlan(plan + ai.chagok.app.core.MaintItem(name, km.toInt()))
+                        a.render()
+                    }
+                }
+            }, WRAP, WRAP, top = 14)
         }, top = 16)
 
         add(a.card {

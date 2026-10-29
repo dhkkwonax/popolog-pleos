@@ -31,10 +31,19 @@
             android:name="ai.chagok.app.MainActivity"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|density|uiMode"
             android:exported="true"
+            android:launchMode="singleTask"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- Gleo(음성 비서)가 부르는 함수. assets/schema.json 의 actionCalls 와 이름이 같다 -->
+            <intent-filter>
+                <action android:name="ADD_EXPENSE" />
+                <action android:name="ai.chagok.app.action.ADD_EXPENSE" />
+                <action android:name="QUERY_REPORT" />
+                <action android:name="ai.chagok.app.action.QUERY_REPORT" />
+                <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
     </application>

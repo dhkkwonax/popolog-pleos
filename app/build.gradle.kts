@@ -28,6 +28,9 @@ android {
             dimension = "mode"
             versionNameSuffix = "-real"
             buildConfigField("boolean", "DEMO", "false")
+            // Pleos 음성(서버)용 앱 인증 정보. 저장소에 넣지 않고 ~/.gradle/gradle.properties 등으로만 준다
+            buildConfigField("String", "PLEOS_CLIENT_ID", "\"${project.findProperty("pleos.clientId") ?: ""}\"")
+            buildConfigField("String", "PLEOS_CLIENT_SECRET", "\"${project.findProperty("pleos.clientSecret") ?: ""}\"")
         }
     }
     buildFeatures { buildConfig = true }
@@ -46,6 +49,10 @@ android {
 dependencies {
     "realImplementation"("ai.pleos.playground:Vehicle:2.3.2")
     "realImplementation"("ai.pleos.playground:FusedLocation:1.1.3")
+    // 차량 음성(질문하고 대답 듣기)과 내비 도착 이벤트·즐겨찾기
+    "realImplementation"("ai.pleos.playground:SpeechToText:3.3.1")
+    "realImplementation"("ai.pleos.playground:TextToSpeech:3.3.1")
+    "realImplementation"("ai.pleos.playground:NaviHelper:3.0.5")
     // 신고용 PDF 의 검증 QR (코어만, 안드로이드 의존 없음)
     implementation("com.google.zxing:core:3.5.3")
     // 일일 앵커의 RFC 3161 타임스탬프 요청·토큰 서명 검증

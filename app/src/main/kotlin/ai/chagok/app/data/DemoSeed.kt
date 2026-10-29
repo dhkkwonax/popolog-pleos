@@ -30,6 +30,11 @@ object DemoSeed {
     const val MALL_LNG = 127.2238
     const val MALL_NAME = "하남 쇼핑몰"
 
+    /** 두 번째 미등록 장소 (도착 장소 저장 시연용) */
+    const val REST_LAT = 37.5632
+    const val REST_LNG = 127.1931
+    const val REST_NAME = "미사 휴게소"
+
     const val START_ODO = 12.0
 
     /** 이 차를 함께 쓰는 두 사람. 시트 위치가 달라 시동 때 누가 탔는지 알 수 있다 */
@@ -106,12 +111,17 @@ object DemoSeed {
                 }
             }
 
-            fun expense(time: Long, c: ExpenseCategory, amount: Long, memo: String, src: ExpenseSource = ExpenseSource.MANUAL) {
-                db.upsert(Expense(time = time, category = c, amountWon = amount, odoKm = odo, memo = memo, source = src))
+            fun expense(time: Long, c: ExpenseCategory, amount: Long, memo: String, src: ExpenseSource = ExpenseSource.MANUAL, odoAt: Double = odo) {
+                db.upsert(Expense(time = time, category = c, amountWon = amount, odoKm = odoAt, memo = memo, source = src))
             }
+
+            // 30일 전 정비 기록에는 그날의 계기판 값을 넣는다 (정비 주기 알림의 기준)
+            val maintDay = today.timeInMillis - 30L * 86_400_000L
+            var maintOdo: Double? = null
 
             expense(at(10, 0), ExpenseCategory.INSURANCE, 1_318_000, "업무전용 자동차보험 1년")
             while (cal.before(today)) {
+                if (maintOdo == null && cal.timeInMillis >= maintDay) maintOdo = odo
                 val dow = cal.get(Calendar.DAY_OF_WEEK)
                 val day = cal.get(Calendar.DAY_OF_MONTH)
                 if (day == 1) expense(at(9, 0), ExpenseCategory.LEASE, 1_150_000, "장기렌트 월 납입")
@@ -135,7 +145,7 @@ object DemoSeed {
                 }
                 cal.add(Calendar.DAY_OF_MONTH, 1)
             }
-            expense(at(9, 0) - 30L * 86_400_000L, ExpenseCategory.MAINTENANCE, 88_000, "첫 엔진오일·필터 교환")
+            expense(at(9, 0) - 30L * 86_400_000L, ExpenseCategory.MAINTENANCE, 88_000, "첫 엔진오일·필터 교환", odoAt = maintOdo ?: odo)
             expense(at(12, 0) - 6L * 86_400_000L, ExpenseCategory.WASH, 15_000, "자동 세차")
             db2.setTransactionSuccessful()
         } finally {

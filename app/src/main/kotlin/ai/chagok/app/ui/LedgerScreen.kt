@@ -2,7 +2,6 @@ package ai.chagok.app.ui
 
 import ai.chagok.app.AppController
 import ai.chagok.app.MainActivity
-import ai.chagok.app.core.KoreanAmountParser
 import ai.chagok.app.core.TaxReport
 import ai.chagok.app.model.Expense
 import ai.chagok.app.model.ExpenseCategory
@@ -52,7 +51,8 @@ class LedgerScreen(private val a: MainActivity) {
         val done = list.filter { !it.pendingAmount }
         val total = done.sumOf { it.amountWon }
 
-        add(a.monthHeader(range, a.button("+ 비용 추가", BtnStyle.PRIMARY) { addExpenseDialog() }))
+        add(a.monthHeader(range, a.button("+ 비용 추가", BtnStyle.PRIMARY) { a.showExpenseInput() }))
+        syncInbox()?.let { add(it, top = 14) }
 
         add(a.pair(
             a.card {
@@ -124,49 +124,31 @@ class LedgerScreen(private val a: MainActivity) {
         }
     }
 
-    private fun addExpenseDialog() {
-        var category = ExpenseCategory.FUEL
-        val amount = a.editText("금액 (원)", InputType.TYPE_CLASS_NUMBER)
-        val memo = a.editText("메모 (선택)", InputType.TYPE_CLASS_TEXT)
-        val chips = a.hbox()
-        fun paint() {
-            for (i in 0 until chips.childCount) {
-                val v = chips.getChildAt(i)
-                val sel = v.tag == category
-                v.background = a.rounded(if (sel) C.NAV_ACTIVE else C.SURFACE2, 999, if (sel) C.SUB else null)
+    /** 외부 연동으로 들어온 '검토 필요' 내역. 승인하면 장부에 넣고, 이미 입력한 같은 기록이 있으면 병합을 권한다 */
+    private fun syncInbox(): View? {
+        val items = c.flows.syncReview()
+        if (items.isEmpty()) return null
+        val fmt = SimpleDateFormat("M/d", Locale.KOREAN).apply { timeZone = TaxReport.KST }
+        return a.card(C.SURFACE, stroke = C.AMBER) {
+            add(a.text("연동 내역 ${items.size}건 · 검토 필요", 19f, bold = true))
+            add(a.text("승인하면 장부에 들어가요. 거절하면 들어가지 않아요.", 14f, C.SUB), top = 4)
+            items.forEachIndexed { i, it ->
+                if (i > 0) add(a.divider(), top = 12)
+                val dup = c.flows.similar(it)
+                add(a.hbox(Gravity.CENTER_VERTICAL) {
+                    add(a.icon(it.category.ic, C.SUB, 22), WRAP, WRAP, end = 14)
+                    add(a.vbox {
+                        add(a.text("${it.category.label}${if (it.memo.isNotEmpty()) " · " + it.memo else ""}", 17f))
+                        val line = listOf(fmt.format(it.time), it.shop).filter { s -> s.isNotEmpty() }.joinToString(" · ")
+                        add(a.text(line, 14f, C.DIM), top = 2)
+                        if (dup != null) add(a.text("이미 입력한 같은 기록이 있어요 (${fmt.format(dup.time)})", 14f, C.AMBER), top = 2)
+                    }, 0, WRAP, 1f, end = 10)
+                    add(a.text(AppController.won(it.amountWon), 18f, bold = true, tabular = true), WRAP, WRAP, end = 12)
+                    if (dup != null) add(a.button("병합", BtnStyle.SECONDARY) { c.flows.approve(it, merge = true) }, WRAP, WRAP, end = 8)
+                    add(a.button(if (dup != null) "따로 추가" else "승인", BtnStyle.PRIMARY) { c.flows.approve(it, merge = false) }, WRAP, WRAP, end = 8)
+                    add(a.button("거절", BtnStyle.GHOST) { c.flows.reject(it) }, WRAP, WRAP)
+                }, top = 12)
             }
-        }
-        for (cat in ExpenseCategory.values()) {
-            chips.add(a.chip(cat.label, C.TEXT, C.SURFACE2, 16f).apply {
-                setCompoundDrawablesRelative(a.iconDrawable(cat.ic, C.SUB, 18), null, null, null)
-                compoundDrawablePadding = a.dp(6)
-                tag = cat
-                minHeight = a.touchHeight(52)
-                setOnClickListener { category = cat; paint() }
-            }, WRAP, WRAP, end = 8)
-        }
-        paint()
-        val body = a.vbox {
-            setPadding(a.dp(24), a.dp(8), a.dp(24), 0)
-            add(HorizontalScrollView(a).apply { addView(chips); isHorizontalScrollBarEnabled = false })
-            add(a.hbox {
-                add(amount, 0, WRAP, 1f, end = 10)
-                add(a.button("", icon = Ic.MIC) {
-                    a.listen("금액을 말씀해 주세요", "예: 삼만 오천 원") { said ->
-                        KoreanAmountParser.parse(said)?.let { amount.setText(it.toString()) }
-                    }
-                }, a.dp(72), WRAP)
-            }, top = 14)
-            add(memo, top = 10)
-        }
-        a.dialog("비용 추가", body, "저장") {
-            val v = amount.text.toString().toLongOrNull() ?: return@dialog
-            c.saveExpense(
-                Expense(
-                    time = c.gateway.now(), category = category, amountWon = v, odoKm = c.odoKm,
-                    memo = memo.text.toString(), source = ExpenseSource.MANUAL,
-                ),
-            )
         }
     }
 }

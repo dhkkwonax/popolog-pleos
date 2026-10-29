@@ -41,19 +41,30 @@ object Integrity {
         }
         ).joinToString("|") { if (v == 1) it.replace("|", "/") else clean(it) }
 
-    /** 비용 기록의 정규화: 시각, 항목, 금액, 계기판 km, 수량, 입력 방식, 금액 미입력 여부, 메모 (v1 은 메모 없음) */
-    fun canonical(e: Expense, v: Int = 2): String = (
+    /**
+     * 비용 기록의 정규화: 시각, 항목, 금액, 계기판 km, 수량, 입력 방식, 금액 미입력 여부, 메모, 결제한 곳.
+     * v1 은 메모·결제한 곳이 없고, v2 는 메모까지, v3 는 결제한 곳까지 담는다.
+     */
+    fun canonical(e: Expense, v: Int = 3): String = (
         listOf(
-            if (v == 1) "expense" else "expense2", e.id.toString(), e.time.toString(), e.category.name, e.amountWon.toString(),
+            when (v) { 1 -> "expense"; 2 -> "expense2"; else -> "expense3" },
+            e.id.toString(), e.time.toString(), e.category.name, e.amountWon.toString(),
             e.odoKm?.let(::km) ?: "", e.quantity?.let(::km) ?: "", e.source.name, if (e.pendingAmount) "pending" else "",
-        ) + if (v == 1) emptyList() else listOf(e.memo)
+        ) + (if (v >= 2) listOf(e.memo) else emptyList()) + (if (v >= 3) listOf(e.shop) else emptyList())
         ).joinToString("|") { if (v == 1) it.replace("|", "/") else clean(it) }
 
     /** 체인 줄이 표의 기록과 같은지. 줄이 쓰인 규칙(v1·v2)으로 정규화해 비교한다 */
     fun matches(payload: String, t: Trip) = payload == canonical(
         t, when { payload.startsWith("trip|") -> 1; payload.startsWith("trip2|") -> 2; else -> 3 },
     )
-    fun matches(payload: String, e: Expense) = payload == canonical(e, if (payload.startsWith("expense|")) 1 else 2)
+    fun matches(payload: String, e: Expense) = payload == canonical(
+        e,
+        when {
+            payload.startsWith("expense|") -> 1
+            payload.startsWith("expense2|") -> 2
+            else -> 3
+        },
+    )
 
     private fun clean(s: String) = s.replace("|", "/").replace("\n", " ")
 

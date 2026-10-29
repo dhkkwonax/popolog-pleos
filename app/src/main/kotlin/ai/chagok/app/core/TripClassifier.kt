@@ -63,6 +63,8 @@ object TripClassifier {
                 Classification(TripPurpose.COMMUTE, from, to, "집 → 회사")
             from?.kind == PlaceKind.OFFICE && to?.kind == PlaceKind.HOME ->
                 Classification(TripPurpose.COMMUTE, from, to, "회사 → 집")
+            to != null ->
+                Classification(TripPurpose.UNCLASSIFIED, from, to, "도착지(${to.name})는 목적을 정하지 않은 장소")
             else ->
                 Classification(TripPurpose.UNCLASSIFIED, from, to, "등록된 장소와 일치하지 않음")
         }
