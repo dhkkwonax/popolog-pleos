@@ -126,6 +126,14 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
     /** 데모 모드(가상 차량·예시 데이터·시연 오버레이) 빌드인지. 실제 동작 모드는 Pleos SDK 값만 쓴다 */
     val demo: Boolean get() = BuildConfig.DEMO
 
+    /** 외부 타임스탬프 기관에 날짜·해시 지문을 보낼지. 설정에서 끌 수 있고, 꺼 두면 앵커는 응답 대기로 남는다 */
+    val tsaEnabled: Boolean get() = db.setting(KEY_TSA, "on") != "off"
+
+    fun setTsaEnabled(on: Boolean) {
+        db.setSetting(KEY_TSA, if (on) "on" else "off")
+        if (on) stampPending() else notifyChanged()
+    }
+
     /** 타임스탬프 요청 중인 앵커가 있는지 (화면 안내용) */
     @Volatile
     var stamping = false
@@ -257,6 +265,25 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
         notifyChanged()
     }
 
+    /**
+     * 실제 동작 모드의 '내 데이터 모두 삭제': 운행·비용·장소·운전자·해시체인·앵커·설정을 모두 지운다. 되돌릴 수 없다.
+     * 내보낸 PDF·CSV·검증 파일은 앱 밖(다운로드/Popolog)에 있어 지우지 않는다.
+     */
+    fun wipeAllData() {
+        if (demo) return
+        stopGatewayOnly()
+        db.clearAll()
+        driver = null
+        driverGreeting = null
+        askTripId = null
+        askExpenseId = null
+        lastNotice = ""
+        odoKm = 0.0
+        reload()
+        connectGateway()
+        notifyChanged()
+    }
+
     private fun stopGatewayOnly() {
         gateway.stop()
     }
@@ -347,6 +374,7 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
      * 기관에는 날짜와 hash 의 지문만 간다.
      */
     fun stampPending(onDone: (() -> Unit)? = null) {
+        if (!tsaEnabled) return
         val pending = db.anchors().filter { it.receipt.isEmpty() }
         if (pending.isEmpty() || stamping) return
         stamping = true
@@ -359,7 +387,7 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
                 db.saveAnchor(a.copy(receipt = receipt, stampedAt = t))
                 ok++
             }
-            android.util.Log.i("Popolog", "tsa stamped $ok/${pending.size}")
+            if (demo) android.util.Log.i("Popolog", "tsa stamped $ok/${pending.size}")
             handler.post {
                 stamping = false
                 reload()
@@ -486,7 +514,7 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
         reload()
         askTripId = id
         lastNotice = "앱이 꺼진 동안 ${fmtKm(trip.distanceKm)} 운행 · 계기판으로 보정"
-        android.util.Log.i("Popolog", "offline gap ${trip.distanceKm}")
+        if (demo) android.util.Log.i("Popolog", "offline gap")
         speak("앱이 꺼져 있던 동안 ${fmtKmSpoken(trip.distanceKm)}를 달렸어요. 업무 운행이었나요?")
         notifyChanged()
     }
@@ -529,13 +557,13 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
     // ---- TripRecorder.Listener ----
     override fun onTripStarted(start: TripStart) {
         // 시연 자동 촬영이 logcat 으로 운행 시작·끝을 확인한다 (운행 중에는 화면 읽기가 느려 쓸 수 없다)
-        android.util.Log.i("Popolog", "trip started")
+        if (demo) android.util.Log.i("Popolog", "trip started")
         lastNotice = "운행 시작 · 계기판 ${fmtKm(start.odoKm)}"
         notifyChanged()
     }
 
     override fun onTripEnded(end: TripEnd) {
-        android.util.Log.i("Popolog", "trip ended")
+        if (demo) android.util.Log.i("Popolog", "trip ended")
         val c = TripClassifier.classify(end.start.lat, end.start.lng, end.lat, end.lng, places)
         val trip = Trip(
             startTime = end.start.time, endTime = end.time,
@@ -587,6 +615,19 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
         db.upsert(fixed)
         record(Integrity.Kind.TRIP_FIX, id, Integrity.canonical(fixed))
         if (askTripId == id) askTripId = null
+        reload()
+        notifyChanged()
+    }
+
+    /** 운행기록부의 사용자란은 자동 추정하지 않고 등록된 이용자 중 실제 이용자를 확인해 기록한다. */
+    fun confirmLogbookUser(id: Long, user: Driver?) {
+        val t = trips.firstOrNull { it.id == id } ?: return
+        val fixed = t.copy(
+            logbookUser = user?.name.orEmpty(),
+            logbookDepartment = user?.department.orEmpty(),
+        )
+        db.upsert(fixed)
+        record(Integrity.Kind.TRIP_FIX, id, Integrity.canonical(fixed))
         reload()
         notifyChanged()
     }
@@ -661,6 +702,10 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
         const val KEY_SIM_CLOCK = "sim_clock"
         /** 화면 테마: auto(시스템 주야간) · day · night */
         const val KEY_THEME = "theme"
+        /** 타임스탬프 기관 전송: on(기본) · off */
+        const val KEY_TSA = "tsa"
+        /** 개인정보 처리 안내를 처음 실행 때 확인했는지 (실제 동작 모드) */
+        const val KEY_PRIVACY_ACK = "privacy_ack"
 
         /** 이만큼 넘게 늘었을 때만 보정 운행으로 남긴다 (계기판 반올림 오차 제외) */
         const val GAP_MIN_KM = 0.2

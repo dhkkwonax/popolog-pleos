@@ -51,6 +51,9 @@ data class Trip(
     val toName: String = "",
     val memo: String = "",
     val driver: String = "",
+    /** 서식의 차량 이용자. 운전자 추정값과 구분하며, 사용자가 확인한 경우에만 채운다. */
+    val logbookUser: String = "",
+    val logbookDepartment: String = "",
 ) {
     val distanceKm: Double get() = (endOdoKm - startOdoKm).coerceAtLeast(0.0)
 }

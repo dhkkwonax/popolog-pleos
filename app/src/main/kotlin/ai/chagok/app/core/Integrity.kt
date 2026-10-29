@@ -28,13 +28,17 @@ object Integrity {
 
     /**
      * 운행 기록의 정규화: 시각, 계기판 km(0.1 단위), 목적, 분류 방법, 운전자, 출발·도착 장소 이름, 메모.
-     * v1(머리 "trip")은 메모가 없었다. 이미 쓴 v1 줄은 v1 규칙으로 대조한다 ([matches])
+     * v1은 메모가 없고, v2는 확인된 서식 이용자가 없었다. 과거 줄은 작성 당시 규칙으로 대조한다 ([matches])
      */
-    fun canonical(t: Trip, v: Int = 2): String = (
+    fun canonical(t: Trip, v: Int = 3): String = (
         listOf(
-            if (v == 1) "trip" else "trip2", t.id.toString(), t.startTime.toString(), t.endTime.toString(),
+            when (v) { 1 -> "trip"; 2 -> "trip2"; else -> "trip3" }, t.id.toString(), t.startTime.toString(), t.endTime.toString(),
             km(t.startOdoKm), km(t.endOdoKm), t.purpose.name, t.classifiedBy.name, t.driver, t.fromName, t.toName,
-        ) + if (v == 1) emptyList() else listOf(t.memo)
+        ) + when (v) {
+            1 -> emptyList()
+            2 -> listOf(t.memo)
+            else -> listOf(t.memo, t.logbookUser, t.logbookDepartment)
+        }
         ).joinToString("|") { if (v == 1) it.replace("|", "/") else clean(it) }
 
     /** 비용 기록의 정규화: 시각, 항목, 금액, 계기판 km, 수량, 입력 방식, 금액 미입력 여부, 메모 (v1 은 메모 없음) */
@@ -46,7 +50,9 @@ object Integrity {
         ).joinToString("|") { if (v == 1) it.replace("|", "/") else clean(it) }
 
     /** 체인 줄이 표의 기록과 같은지. 줄이 쓰인 규칙(v1·v2)으로 정규화해 비교한다 */
-    fun matches(payload: String, t: Trip) = payload == canonical(t, if (payload.startsWith("trip|")) 1 else 2)
+    fun matches(payload: String, t: Trip) = payload == canonical(
+        t, when { payload.startsWith("trip|") -> 1; payload.startsWith("trip2|") -> 2; else -> 3 },
+    )
     fun matches(payload: String, e: Expense) = payload == canonical(e, if (payload.startsWith("expense|")) 1 else 2)
 
     private fun clean(s: String) = s.replace("|", "/").replace("\n", " ")

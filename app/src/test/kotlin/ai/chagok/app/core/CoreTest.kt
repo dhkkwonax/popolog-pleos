@@ -175,7 +175,7 @@ class TaxReportTest {
         val csv = TaxReport.logbookCsv(2026, trips, VehicleInfo("그랜저", "123가 4567", "VIN", Powertrain.ICE, 64.0), "한결상사", "123-45-67890", "영업팀")
         assertTrue(csv.startsWith("﻿"))
         assertTrue("주행 전 계기판의 거리(km)" in csv)
-        assertTrue("2026-06-01(월),영업팀,,100.0,125.0,25.0,25.0,0.0" in csv, csv)
-        assertTrue("업무사용비율(%),71.4" in csv)
+        assertTrue("2026-06-01(월),,,100.0,125.0,25.0,25.0,0.0" in csv, csv)
+        assertTrue("⑬ 업무사용비율(⑫/⑪),71.4%" in csv)
     }
 }

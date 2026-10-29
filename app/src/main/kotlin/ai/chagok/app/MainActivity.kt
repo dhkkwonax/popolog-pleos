@@ -111,6 +111,28 @@ class MainActivity : Activity() {
         requestCarPermissions()
         controller.start()
         render()
+        // 실제 동작 모드는 처음 실행할 때 개인정보 처리 안내를 한 번 보여 준다 (설정에서 다시 볼 수 있다)
+        if (!controller.demo && controller.db.setting(AppController.KEY_PRIVACY_ACK) != "1") {
+            window.decorView.post { showPrivacyNotice(firstRun = true) }
+        }
+    }
+
+    /** 개인정보 처리 안내 (초안). 처음 실행이면 확인 버튼으로 확인 기록을 남긴다 */
+    fun showPrivacyNotice(firstRun: Boolean = false) {
+        val body = vbox {
+            setPadding(dp(24), dp(4), dp(24), dp(4))
+            ai.chagok.app.core.PrivacyNotice.sections.forEachIndexed { i, s ->
+                add(text(s.title, 17f, bold = true), top = if (i == 0) 0 else 16)
+                add(text(s.body, 15f, C.SUB), top = 6)
+            }
+        }
+        val scroll = ScrollView(this).apply { addView(body) }
+        val d = dialog("개인정보 처리 안내", scroll, if (firstRun) "확인했어요" else null) {
+            controller.db.setSetting(AppController.KEY_PRIVACY_ACK, "1")
+        }
+        // 긴 글이 화면 밖으로 나가지 않게 높이를 제한한다
+        scroll.layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, (resources.displayMetrics.heightPixels * 0.6).toInt())
+        d.setCancelable(!firstRun)
     }
 
     /**
@@ -500,7 +522,7 @@ class MainActivity : Activity() {
         listen("${e.category.label} 금액을 말씀해 주세요", "예: 칠만 삼천 원") { said ->
             val amount = KoreanAmountParser.parse(said)
             if (amount == null) {
-                toast("금액을 알아듣지 못했어요: \"$said\"")
+                toast("금액을 알아듣지 못했어요. 다시 말하거나 직접 입력해 주세요")
             } else {
                 controller.setExpenseAmount(e.id, amount, ExpenseSource.VOICE)
             }
@@ -531,7 +553,7 @@ class MainActivity : Activity() {
                 listOf("업무", "미팅", "거래처", "출장", "납품", "응", "네", "맞아").any { it in said } -> TripPurpose.BUSINESS
                 else -> null
             }
-            if (p == null) toast("목적을 알아듣지 못했어요: \"$said\"")
+            if (p == null) toast("목적을 알아듣지 못했어요. 버튼으로 골라 주세요")
             else controller.classifyTrip(t.id, p, ClassifiedBy.VOICE)
         }
     }
@@ -550,6 +572,32 @@ class MainActivity : Activity() {
             }
         }
         dlg = dialog("운행 목적", body, null) {}
+    }
+
+    /** 세무 운행기록부에 기재할 차량 이용자를 운행별로 확인한다. */
+    fun chooseLogbookUser(t: Trip) {
+        if (controller.drivers.isEmpty()) {
+            toast("설정에서 차량 이용자를 먼저 등록해 주세요")
+            select(Tab.SETTINGS)
+            return
+        }
+        var dlg: Dialog? = null
+        val body = vbox {
+            setPadding(dp(24), dp(8), dp(24), dp(8))
+            add(text("운행을 실제로 이용한 사람을 선택하세요. 자동 추정값은 세무 서식에 쓰지 않습니다.", 15f, C.SUB))
+            controller.drivers.forEach { user ->
+                add(choice("${user.department} · ${user.name}", t.logbookUser == user.name && t.logbookDepartment == user.department) {
+                    controller.confirmLogbookUser(t.id, user)
+                    dlg?.dismiss()
+                }, top = 10)
+            }
+        }
+        val extras: List<Pair<String, () -> Unit>> = if (t.logbookUser.isNotBlank()) listOf("확인 해제" to {
+            controller.confirmLogbookUser(t.id, null)
+            dlg?.dismiss()
+            Unit
+        }) else emptyList()
+        dlg = dialog("운행기록 사용자 확인", body, null, extras) {}
     }
 
     // ---- 공용 다이얼로그 ----
@@ -612,6 +660,7 @@ class MainActivity : Activity() {
                 r.openPage(0).use { it.render(bmp, null, null, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY) }
             }
         }
+        f.delete()
         val body = vbox {
             setPadding(dp(24), dp(4), dp(24), 0)
             add(android.widget.ImageView(this@MainActivity).apply {
@@ -625,10 +674,7 @@ class MainActivity : Activity() {
         d.window?.setLayout(w + dp(48), android.view.WindowManager.LayoutParams.WRAP_CONTENT)
     }
 
-    /**
-     * QR 이 여는 검증 페이지(assets/verify.html)를 앱 안에서 연다. QR 값은 주소 뒤(#)로, 검증 파일은 페이지에 바로 넘긴다.
-     * 페이지는 체인을 처음부터 다시 계산해 QR 의 최종 해시·건수와, 앵커의 타임스탬프 지문과 대조한다.
-     */
+    /** 운행기록부 PDF 미리보기에서 여는 별도 검증 페이지. 체인·앵커를 다시 계산해 일치 여부를 보여 준다. */
     fun showVerifyPage(qr: String, ledgerJson: String) {
         val web = android.webkit.WebView(this)
         web.settings.javaScriptEnabled = true

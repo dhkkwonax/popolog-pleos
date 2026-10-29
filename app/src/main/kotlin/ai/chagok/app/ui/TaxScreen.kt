@@ -25,7 +25,7 @@ class TaxScreen(private val a: MainActivity) {
 
         val heading = a.vbox {
             add(a.text("${year}년 업무용승용차 리포트", 24f, bold = true))
-            add(a.text("법인·개인사업자 업무용 차량 비용 처리용 · 운행기록부 자동 작성", 15f, C.SUB), top = 6)
+            add(a.text("법인세법용 업무용 차량 비용 처리 · 운행기록부 자동 작성", 15f, C.SUB), top = 6)
         }
         val exportPdf = a.button("운행기록부 PDF", BtnStyle.PRIMARY, icon = Ic.DOC) { exportPdf(year, s) }
         val exportLog = a.button("운행기록부 CSV") { exportLogbook(year) }
@@ -247,6 +247,7 @@ class TaxScreen(private val a: MainActivity) {
 
     /** 마지막 앵커의 타임스탬프 상태 한 줄 */
     private fun tsaLine(anchor: ai.chagok.app.core.Integrity.DailyAnchor?): String = when {
+        !c.tsaEnabled -> "타임스탬프: 꺼짐 (설정에서 켜면 날짜와 해시 지문을 기관에 보내 서명을 받음)"
         c.stamping -> "타임스탬프: 기관에 요청 중… (날짜와 해시 지문만 보냄)"
         anchor == null -> "타임스탬프: 하루가 끝나면 기관(RFC 3161)에 요청"
         Rfc3161.isSigned(anchor.receipt) -> "타임스탬프: ${Rfc3161.host(anchor.receipt)} 서명 확인 (RFC 3161) · 외부에는 날짜와 해시 지문만 보냄"

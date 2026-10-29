@@ -17,7 +17,7 @@ import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 
 /** 프레임워크 SQLite만 쓰는 저장소 (외부 라이브러리 없이 빌드하기 위해 Room 대신 사용) */
-class ChagokDb(context: Context) : SQLiteOpenHelper(context, "chagok.db", null, 2) {
+class ChagokDb(context: Context) : SQLiteOpenHelper(context, "chagok.db", null, 3) {
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
@@ -27,7 +27,8 @@ class ChagokDb(context: Context) : SQLiteOpenHelper(context, "chagok.db", null, 
         db.execSQL(
             "CREATE TABLE trip (id INTEGER PRIMARY KEY AUTOINCREMENT, start_time INTEGER, end_time INTEGER, " +
                 "start_odo REAL, end_odo REAL, start_lat REAL, start_lng REAL, end_lat REAL, end_lng REAL, " +
-                "purpose TEXT, classified_by TEXT, from_name TEXT, to_name TEXT, memo TEXT, driver TEXT)",
+                "purpose TEXT, classified_by TEXT, from_name TEXT, to_name TEXT, memo TEXT, driver TEXT, " +
+                "logbook_user TEXT NOT NULL DEFAULT '', logbook_department TEXT NOT NULL DEFAULT '')",
         )
         db.execSQL(
             "CREATE TABLE expense (id INTEGER PRIMARY KEY AUTOINCREMENT, time INTEGER, category TEXT, amount INTEGER, " +
@@ -40,6 +41,10 @@ class ChagokDb(context: Context) : SQLiteOpenHelper(context, "chagok.db", null, 
     /** v2: 위변조 검증용 해시체인(ledger)·일일 앵커(anchor). 체인은 AppController.start 가 기존 기록으로 처음 만든다 */
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         if (oldVersion < 2) createIntegrityTables(db)
+        if (oldVersion < 3) {
+            db.execSQL("ALTER TABLE trip ADD COLUMN logbook_user TEXT NOT NULL DEFAULT ''")
+            db.execSQL("ALTER TABLE trip ADD COLUMN logbook_department TEXT NOT NULL DEFAULT ''")
+        }
     }
 
     private fun createIntegrityTables(db: SQLiteDatabase) {
@@ -79,6 +84,7 @@ class ChagokDb(context: Context) : SQLiteOpenHelper(context, "chagok.db", null, 
                 endLat = c.dbl("end_lat"), endLng = c.dbl("end_lng"),
                 purpose = TripPurpose.valueOf(c.str("purpose")), classifiedBy = ClassifiedBy.valueOf(c.str("classified_by")),
                 fromName = c.str("from_name"), toName = c.str("to_name"), memo = c.str("memo"), driver = c.str("driver"),
+                logbookUser = c.str("logbook_user"), logbookDepartment = c.str("logbook_department"),
             )
         }
     }
@@ -89,6 +95,7 @@ class ChagokDb(context: Context) : SQLiteOpenHelper(context, "chagok.db", null, 
         put("start_lat", t.startLat); put("start_lng", t.startLng); put("end_lat", t.endLat); put("end_lng", t.endLng)
         put("purpose", t.purpose.name); put("classified_by", t.classifiedBy.name)
         put("from_name", t.fromName); put("to_name", t.toName); put("memo", t.memo); put("driver", t.driver)
+        put("logbook_user", t.logbookUser); put("logbook_department", t.logbookDepartment)
     })
 
     // ---- expense ----

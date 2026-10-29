@@ -9,12 +9,12 @@ class SettingsScreen(private val a: MainActivity) {
     private val c = a.controller
 
     fun render(): View = a.vbox {
-        val company = a.editText("법인·상호명", InputType.TYPE_CLASS_TEXT, c.db.setting(AppController.KEY_COMPANY))
+        val company = a.editText("법인명", InputType.TYPE_CLASS_TEXT, c.db.setting(AppController.KEY_COMPANY))
         val bizNo = a.editText("사업자등록번호", InputType.TYPE_CLASS_TEXT, c.db.setting(AppController.KEY_BIZNO))
 
         add(a.card {
             add(a.text("운행기록부 머리말", 20f, bold = true))
-            add(a.text("국세청 서식의 법인명·사업자번호 칸에 들어갑니다. 부서·성명은 운전자별로 들어갑니다", 15f, C.SUB), top = 6)
+            add(a.text("법인세법용 운행기록부의 법인명·사업자번호 칸에 들어갑니다", 15f, C.SUB), top = 6)
             add(a.hbox {
                 add(company, 0, WRAP, 1f, end = 10)
                 add(bizNo, 0, WRAP, 1f)
@@ -27,8 +27,8 @@ class SettingsScreen(private val a: MainActivity) {
         })
 
         add(a.card {
-            add(a.text("운전자", 20f, bold = true))
-            add(a.text("시동 직후 운전석 시트 위치 → 평소 출발 시간·장소 → 마지막 운전자 순서로 알아봅니다", 15f, C.SUB), top = 6)
+            add(a.text("운전자·차량 이용자", 20f, bold = true))
+            add(a.text("운전자는 시트 위치·운행 습관으로 추정합니다. 세무 기록의 차량 이용자는 운행별로 따로 확인합니다.", 15f, C.SUB), top = 6)
             val now = c.driver
             c.drivers.forEachIndexed { i, d ->
                 if (i > 0) add(a.divider(), top = 12)
@@ -44,7 +44,7 @@ class SettingsScreen(private val a: MainActivity) {
                 }, top = 12)
             }
             // 실제 동작 모드는 예시 운전자가 없으므로 여기서 등록한다
-            add(a.button("운전자 추가", BtnStyle.SECONDARY, icon = Ic.PERSON) { addDriverDialog() }, WRAP, WRAP, top = 14)
+            add(a.button("이용자·운전자 추가", BtnStyle.SECONDARY, icon = Ic.PERSON) { addDriverDialog() }, WRAP, WRAP, top = 14)
         }, top = 16)
 
         add(a.card {
@@ -57,6 +57,34 @@ class SettingsScreen(private val a: MainActivity) {
                     add(a.choice(label, now == k) { a.applyThemeMode(k) }, WRAP, WRAP, end = if (i < opts.lastIndex) 10 else 0)
                 }
             }, top = 14)
+        }, top = 16)
+
+        add(a.card {
+            add(a.text("개인정보", 20f, bold = true))
+            add(a.text("기록은 이 기기에만 저장합니다. 밖으로 나가는 것과 삭제 방법은 처리 안내에서 확인하세요 (초안)", 15f, C.SUB), top = 6)
+            add(a.button("개인정보 처리 안내 보기", BtnStyle.SECONDARY) { a.showPrivacyNotice() }, WRAP, WRAP, top = 14)
+            val tsaOn = c.tsaEnabled
+            add(a.text("외부 타임스탬프 전송", 17f, bold = true), top = 18)
+            add(a.text("하루가 끝나면 날짜와 해시의 지문만 freetsa.org에 보내 서명을 받습니다. 위치·이름·금액은 보내지 않지만 기관은 접속 시각과 IP를 알 수 있습니다.", 14f, C.DIM), top = 4)
+            add(a.hbox {
+                add(a.choice("켜짐", tsaOn) { c.setTsaEnabled(true); a.render() }, WRAP, WRAP, end = 10)
+                add(a.choice("꺼짐", !tsaOn) { c.setTsaEnabled(false); a.render() }, WRAP, WRAP)
+            }, top = 10)
+            if (!c.demo) {
+                add(a.divider(), top = 18)
+                add(a.text("내 데이터 모두 삭제", 17f, bold = true), top = 14)
+                add(a.text("운행·비용·장소·운전자·해시체인·앵커·설정을 모두 지웁니다. 되돌릴 수 없고, 내보낸 PDF·CSV 파일은 직접 지워야 합니다.", 14f, C.DIM), top = 4)
+                add(a.button("모두 삭제", BtnStyle.WARN, icon = Ic.RESET) {
+                    a.dialog(
+                        "모든 기록을 삭제할까요?",
+                        a.text("  세무 보존이 필요한 기록이면 먼저 운행기록부를 내보내세요. 삭제한 기록은 복구할 수 없습니다.", 16f, C.SUB),
+                        "삭제",
+                    ) {
+                        c.wipeAllData()
+                        a.toast("모든 기록을 삭제했어요")
+                    }
+                }, WRAP, WRAP, top = 12)
+            }
         }, top = 16)
 
         add(a.card {
@@ -85,7 +113,7 @@ class SettingsScreen(private val a: MainActivity) {
             add(dept, top = 10)
             add(a.text("시트 위치는 그 사람이 운전석에 앉은 뒤 '지금 시트 위치로 등록'으로 저장합니다", 14f, C.DIM), top = 10)
         }
-        a.dialog("운전자 추가", body, "추가") {
+        a.dialog("차량 이용자·운전자 추가", body, "추가") {
             val n = name.text.toString().trim()
             if (n.isNotEmpty()) c.addDriver(n, dept.text.toString().trim())
         }

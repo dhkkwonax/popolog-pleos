@@ -64,7 +64,7 @@ object TaxReport {
     }
 
     /**
-     * 국세청 「업무용승용차 운행기록부」 서식(별지 제63호) 열 구성의 CSV.
+     * 법인세법 기준 국세청 「업무용승용차 운행기록부」 CSV.
      * 엑셀에서 한글이 깨지지 않도록 UTF-8 BOM을 붙인다.
      */
     fun logbookCsv(
@@ -88,17 +88,16 @@ object TaxReport {
         for (row in logbookRows(year, trips, department, tz, departmentOf)) sb.appendLine(row.joinToString(",") { csv(it) })
         val s = summarize(year, trips, emptyList(), tz)
         sb.appendLine()
-        sb.appendLine("사업연도 총주행거리(km),${km(s.totalKm)}")
-        sb.appendLine("사업연도 업무용 사용거리(km),${km(s.businessUseKm)}")
-        sb.appendLine("업무사용비율(%),${String.format(Locale.US, "%.1f", s.businessRatio * 100)}")
-        sb.appendLine("기록 출처,차량 계기판 누적거리(Pleos Vehicle SDK Odometer) 자동 기록")
+        sb.appendLine("⑪ 사업연도 총 주행거리(km),${km(s.totalKm)}")
+        sb.appendLine("⑫ 사업연도 업무용 사용거리(km),${km(s.businessUseKm)}")
+        sb.appendLine("⑬ 업무사용비율(⑫/⑪),${String.format(Locale.US, "%.1f", s.businessRatio * 100)}%")
         return sb.toString()
     }
 
-    /** 별지 제63호 운행기록부 열. CSV 와 PDF 가 같이 쓴다 */
+    /** 법인세 고시 운행기록부 열. CSV와 PDF가 같이 쓴다. */
     val LOGBOOK_COLUMNS = listOf(
-        "사용일자(요일)", "부서", "성명", "주행 전 계기판의 거리(km)", "주행 후 계기판의 거리(km)", "주행거리(km)",
-        "업무용 사용거리-출·퇴근용(km)", "업무용 사용거리-일반 업무용(km)", "비고",
+        "③사용일자(요일)", "④사용자-부서", "④사용자-성명", "⑤주행 전 계기판의 거리(km)", "⑥주행 후 계기판의 거리(km)", "⑦주행거리(km)",
+        "⑧업무용 사용거리-출퇴근용(km)", "⑨업무용 사용거리-일반 업무용(km)", "⑩비고",
     )
 
     /** 운행기록부 본문 행 (CSV·PDF 공용) */
@@ -113,14 +112,11 @@ object TaxReport {
         return trips.filter { yearOf(it.startTime, tz) == year }.sortedBy { it.startTime }.map { t ->
             val commute = if (t.purpose == TripPurpose.COMMUTE) t.distanceKm else 0.0
             val business = if (t.purpose == TripPurpose.BUSINESS) t.distanceKm else 0.0
-            val note = listOf(
-                if (t.toName.isNotEmpty()) "${t.fromName.ifEmpty { "-" }}→${t.toName}" else "",
-                if (t.purpose == TripPurpose.UNCLASSIFIED) "미분류" else "",
-                t.memo,
-            ).filter { it.isNotEmpty() }.joinToString(" / ")
+            val userDepartment = if (t.logbookUser.isBlank()) "" else
+                t.logbookDepartment.ifBlank { departmentOf(t.logbookUser) ?: department }
             listOf(
-                day.format(t.startTime), departmentOf(t.driver) ?: department, t.driver, km(t.startOdoKm), km(t.endOdoKm),
-                km(t.distanceKm), km(commute), km(business), note,
+                day.format(t.startTime), userDepartment, t.logbookUser, km(t.startOdoKm), km(t.endOdoKm),
+                km(t.distanceKm), km(commute), km(business), t.purpose.label,
             )
         }
     }

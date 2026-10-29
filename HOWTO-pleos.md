@@ -52,7 +52,7 @@ $WA -s emulator-5570 install -r 'C:\Android\dl\app-demo-debug.apk'   # 또는 ap
 # 모드를 바꿔 깔면 앞 모드의 기록이 남으므로 지운다
 $WA -s emulator-5570 shell pm clear --user current ai.chagok.app
 # 실제 동작 모드는 차량 권한 창이 뜬다. 촬영·시험에서는 미리 승인해 둔다
-for p in FUSED_LOCATION CAR_MILEAGE CAR_ENERGY CAR_INFO CAR_DRIVE CAR_SEATS CAR_POWERTRAIN; do
+for p in FUSED_LOCATION; do   # 나머지 차량 권한은 설치할 때 자동으로 부여된다
   $WA -s emulator-5570 shell pm grant --user current ai.chagok.app pleos.car.permission.$p; done
 ```
 
