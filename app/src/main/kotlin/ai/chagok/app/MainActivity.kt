@@ -647,30 +647,49 @@ class MainActivity : Activity() {
         return d
     }
 
-    /** PDF 첫 장을 그림으로 보여 주고, [onSave] 로 저장한다 */
+    /** PDF 를 쪽별 그림으로 보여 주고(‹ › 로 넘김), [onSave] 로 저장한다. 임시 파일은 그릴 때만 만들고 바로 지운다 */
     fun showPdfPreview(title: String, pdf: ByteArray, caption: String, extra: List<Pair<String, () -> Unit>> = emptyList(), onSave: () -> Unit) {
-        val f = File(cacheDir, "preview.pdf").apply { writeBytes(pdf) }
         val win = resources.displayMetrics
         // 대화상자 안에 제목·버튼이 함께 들어가도록 높이 기준으로도 줄인다 (A4 가로 = 1.414:1)
         val w = minOf((win.widthPixels * 0.9).toInt() - dp(48), ((win.heightPixels * 0.62) * 1.414).toInt())
         val h = (w / 1.414).toInt()
-        val bmp = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888).apply { eraseColor(Color.WHITE) }
-        android.os.ParcelFileDescriptor.open(f, android.os.ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
-            android.graphics.pdf.PdfRenderer(fd).use { r ->
-                r.openPage(0).use { it.render(bmp, null, null, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY) }
+        val image = android.widget.ImageView(this)
+        val pageLabel = text("", 15f, C.SUB, tabular = true)
+        var pageCount = 1
+        var page = 0
+        fun show(n: Int) {
+            val bmp = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888).apply { eraseColor(Color.WHITE) }
+            val f = File(cacheDir, "preview.pdf").apply { writeBytes(pdf) }
+            try {
+                android.os.ParcelFileDescriptor.open(f, android.os.ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
+                    android.graphics.pdf.PdfRenderer(fd).use { r ->
+                        pageCount = r.pageCount
+                        page = n.coerceIn(0, pageCount - 1)
+                        r.openPage(page).use { it.render(bmp, null, null, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY) }
+                    }
+                }
+            } finally {
+                f.delete()
             }
+            image.setImageBitmap(bmp)
+            image.contentDescription = "운행기록부 PDF ${page + 1}쪽"
+            pageLabel.text = "${page + 1} / ${pageCount}쪽"
         }
-        f.delete()
+        show(0)
         val body = vbox {
             setPadding(dp(24), dp(4), dp(24), 0)
-            add(android.widget.ImageView(this@MainActivity).apply {
-                setImageBitmap(bmp)
-                background = rounded(Color.WHITE, 6, C.LINE)
-                contentDescription = "운행기록부 PDF 첫 장"
-            }, w, h)
-            add(text(caption, 15f, C.SUB, tabular = true), top = 10)
+            image.background = rounded(Color.WHITE, 6, C.LINE)
+            add(image, w, h)
+            add(hbox(Gravity.CENTER_VERTICAL) {
+                add(text(caption, 15f, C.SUB, tabular = true), 0, WRAP, 1f)
+                add(pageLabel, WRAP, WRAP)
+            }, top = 10)
         }
-        val d = dialog(title, body, "PDF 저장", extra, onSave)
+        val paging: List<Pair<String, () -> Unit>> = if (pageCount > 1) listOf(
+            "‹" to { show(page - 1) },
+            "›" to { show(page + 1) },
+        ) else emptyList()
+        val d = dialog(title, body, "PDF 저장", paging + extra, onSave)
         d.window?.setLayout(w + dp(48), android.view.WindowManager.LayoutParams.WRAP_CONTENT)
     }
 
