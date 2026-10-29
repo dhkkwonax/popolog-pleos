@@ -25,7 +25,7 @@ class TaxScreen(private val a: MainActivity) {
 
         val heading = a.vbox {
             add(a.text("${year}년 업무용승용차 리포트", 24f, bold = true))
-            add(a.text("법인세법용 업무용 차량 비용 처리 · 운행기록부 자동 작성", 15f, C.SUB), top = 6)
+            add(a.text("${c.taxpayer.law}용 업무용 차량 비용 처리 · 운행기록부 자동 작성", 15f, C.SUB), top = 6)
         }
         val exportPdf = a.button("운행기록부 PDF", BtnStyle.PRIMARY, icon = Ic.DOC) { exportPdf(year, s) }
         val exportLog = a.button("운행기록부 CSV") { exportLogbook(year) }
@@ -275,7 +275,7 @@ class TaxScreen(private val a: MainActivity) {
             ),
             summary = s, vehicle = c.gateway.info,
             company = c.db.setting(AppController.KEY_COMPANY), bizNumber = c.db.setting(AppController.KEY_BIZNO),
-            finalHash = r.lastHash, chainCount = r.count, lastAnchor = c.anchors.maxByOrNull { it.day },
+            finalHash = r.lastHash, chainCount = r.count, lastAnchor = c.anchors.maxByOrNull { it.day }, taxpayer = c.taxpayer,
         )
         val bytes = LogbookPdf.build(input)
         val fileName = "운행기록부_${year}_${stamp()}.pdf"
@@ -298,6 +298,7 @@ class TaxScreen(private val a: MainActivity) {
             bizNumber = c.db.setting(AppController.KEY_BIZNO),
             department = c.db.setting(AppController.KEY_DEPT),
             departmentOf = { name -> c.drivers.firstOrNull { it.name == name }?.department },
+            taxpayer = c.taxpayer,
         )
         a.saveCsv("운행기록부_${year}_${stamp()}.csv", csv)
     }

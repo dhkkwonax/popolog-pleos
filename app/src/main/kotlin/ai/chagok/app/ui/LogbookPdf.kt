@@ -2,6 +2,7 @@ package ai.chagok.app.ui
 
 import ai.chagok.app.core.Integrity
 import ai.chagok.app.core.Rfc3161
+import ai.chagok.app.core.Taxpayer
 import ai.chagok.app.core.TaxSummary
 import ai.chagok.app.model.VehicleInfo
 import android.graphics.Canvas
@@ -17,7 +18,8 @@ import java.io.ByteArrayOutputStream
 import java.util.Locale
 
 /**
- * 법인세법용 「업무용승용차 운행기록부」 인쇄 서식.
+ * 「업무용승용차 운행기록부」 인쇄 서식. 소득세법 고시(제2025-5호)와 법인세법 고시(제2025-8호)의 별지 서식은
+ * 머리글·합계 용어만 다르므로 [Input.taxpayer] 로 고른다.
  * 서식 본문(상단 블록·표·합계)은 서식 그대로 두고, 마지막 쪽 합계 아래에 기록 무결성 검증 상자(검증 코드·QR)를 붙인다.
  */
 object LogbookPdf {
@@ -33,6 +35,7 @@ object LogbookPdf {
         val finalHash: String,
         val chainCount: Int,
         val lastAnchor: Integrity.DailyAnchor?,
+        val taxpayer: Taxpayer = Taxpayer.PERSONAL,
     )
 
     fun qrText(i: Input): String =
@@ -44,7 +47,7 @@ object LogbookPdf {
     private const val M = 30f
     private const val ROW_H = 20f
 
-    // 첫 쪽: 상단 블록(사업연도·법인명·기본정보) 아래에서 표가 시작한다. 2쪽부터는 표만 이어진다.
+    // 첫 쪽: 상단 블록(기간·상호명 또는 법인명·기본정보) 아래에서 표가 시작한다. 2쪽부터는 표만 이어진다.
     // 표 머리글은 쪽마다 반복하고, 합계 행이 마지막 쪽에 들어갈 자리를 모든 쪽에서 비워 둔다.
     private const val FIRST_TABLE_TOP = 180f
     private const val NEXT_TABLE_TOP = 44f
@@ -136,10 +139,10 @@ object LogbookPdf {
         rect(c, xTitle, top, titleW, h)
         rect(c, xRight, top, rightW, h)
         line(c, xRight, top + h / 2, xRight + rightW, top + h / 2)
-        left(c, "사업연도", xYear + 7, top + 18, 9f)
+        left(c, i.taxpayer.period, xYear + 7, top + 18, 9f)
         centered(c, "${i.year}. 1. 1.  ~  ${i.year}. 12. 31.", xYear + yearW / 2, top + 36, 9f)
         centered(c, "업무용승용차 운행기록부", xTitle + titleW / 2, top + 29, 17f, bold = true)
-        left(c, "법인명", xRight + 7, top + 16, 8f)
+        left(c, i.taxpayer.nameCell, xRight + 7, top + 16, 8f)
         left(c, i.company, xRight + 65, top + 16, 9f)
         left(c, "사업자등록번호", xRight + 7, top + 40, 8f)
         left(c, i.bizNumber, xRight + 90, top + 40, 9f)
@@ -213,9 +216,9 @@ object LogbookPdf {
         val leftW = widths.take(3).sum()
         c.drawRect(M, top, xs[3], top + h * 2, Paint().apply { color = LIGHT })
         cell(c, M, top, leftW, h * 2, "합계", 8.5f, bold = true)
-        cell(c, xs[3], top, widths[3] + widths[4] + widths[5], h, "⑪ 사업연도 총 주행거리(km)", 8f)
+        cell(c, xs[3], top, widths[3] + widths[4] + widths[5], h, "⑪ ${i.taxpayer.period} 총 주행거리(km)", 8f)
         cell(c, xs[3], top + h, widths[3] + widths[4] + widths[5], h, km(i.summary.totalKm), 8.5f, bold = true)
-        cell(c, xs[6], top, widths[6] + widths[7], h, "⑫ 사업연도 업무용 사용거리(km)", 8f)
+        cell(c, xs[6], top, widths[6] + widths[7], h, "⑫ ${i.taxpayer.period} 업무용 사용거리(km)", 8f)
         cell(c, xs[6], top + h, widths[6] + widths[7], h, km(i.summary.businessUseKm), 8.5f, bold = true)
         cell(c, xs[8], top, widths[8], h, "⑬ 업무사용비율(⑫/⑪)", 8f)
         cell(c, xs[8], top + h, widths[8], h, String.format(Locale.US, "%.1f%%", i.summary.businessRatio * 100), 8.5f, bold = true)

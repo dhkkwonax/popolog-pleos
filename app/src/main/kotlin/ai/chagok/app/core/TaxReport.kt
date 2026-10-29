@@ -64,7 +64,7 @@ object TaxReport {
     }
 
     /**
-     * 법인세법 기준 국세청 「업무용승용차 운행기록부」 CSV.
+     * 국세청 「업무용승용차 운행기록부」 CSV. 사업자 유형([taxpayer])에 따라 머리글·합계 용어가 달라진다.
      * 엑셀에서 한글이 깨지지 않도록 UTF-8 BOM을 붙인다.
      */
     fun logbookCsv(
@@ -77,24 +77,25 @@ object TaxReport {
         tz: TimeZone = KST,
         /** 운전자마다 부서가 다르면 운행마다 그 사람의 부서를 쓴다 */
         departmentOf: (driver: String) -> String? = { null },
+        taxpayer: Taxpayer = Taxpayer.PERSONAL,
     ): String {
         val sb = StringBuilder("\uFEFF")
         sb.appendLine("업무용승용차 운행기록부")
-        sb.appendLine("사업연도,$year-01-01 ~ $year-12-31")
-        sb.appendLine("법인명,${csv(companyName)},사업자등록번호,${csv(bizNumber)}")
+        sb.appendLine("${taxpayer.period},$year-01-01 ~ $year-12-31")
+        sb.appendLine("${taxpayer.nameLabel},${csv(companyName)},사업자등록번호,${csv(bizNumber)}")
         sb.appendLine("차종,${csv(vehicle.modelName)},자동차등록번호,${csv(vehicle.plateNumber)}")
         sb.appendLine()
         sb.appendLine(LOGBOOK_COLUMNS.joinToString(","))
         for (row in logbookRows(year, trips, department, tz, departmentOf)) sb.appendLine(row.joinToString(",") { csv(it) })
         val s = summarize(year, trips, emptyList(), tz)
         sb.appendLine()
-        sb.appendLine("⑪ 사업연도 총 주행거리(km),${km(s.totalKm)}")
-        sb.appendLine("⑫ 사업연도 업무용 사용거리(km),${km(s.businessUseKm)}")
+        sb.appendLine("⑪ ${taxpayer.period} 총 주행거리(km),${km(s.totalKm)}")
+        sb.appendLine("⑫ ${taxpayer.period} 업무용 사용거리(km),${km(s.businessUseKm)}")
         sb.appendLine("⑬ 업무사용비율(⑫/⑪),${String.format(Locale.US, "%.1f", s.businessRatio * 100)}%")
         return sb.toString()
     }
 
-    /** 법인세 고시 운행기록부 열. CSV와 PDF가 같이 쓴다. */
+    /** 국세청 고시 운행기록부 열(두 고시가 같다). CSV와 PDF가 같이 쓴다. */
     val LOGBOOK_COLUMNS = listOf(
         "③사용일자(요일)", "④사용자-부서", "④사용자-성명", "⑤주행 전 계기판의 거리(km)", "⑥주행 후 계기판의 거리(km)", "⑦주행거리(km)",
         "⑧업무용 사용거리-출퇴근용(km)", "⑨업무용 사용거리-일반 업무용(km)", "⑩비고",

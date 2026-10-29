@@ -2,6 +2,7 @@ package ai.chagok.app.ui
 
 import ai.chagok.app.AppController
 import ai.chagok.app.MainActivity
+import ai.chagok.app.core.Taxpayer
 import android.text.InputType
 import android.view.View
 
@@ -9,12 +10,18 @@ class SettingsScreen(private val a: MainActivity) {
     private val c = a.controller
 
     fun render(): View = a.vbox {
-        val company = a.editText("법인명", InputType.TYPE_CLASS_TEXT, c.db.setting(AppController.KEY_COMPANY))
+        val taxpayer = c.taxpayer
+        val company = a.editText(taxpayer.nameLabel, InputType.TYPE_CLASS_TEXT, c.db.setting(AppController.KEY_COMPANY))
         val bizNo = a.editText("사업자등록번호", InputType.TYPE_CLASS_TEXT, c.db.setting(AppController.KEY_BIZNO))
 
         add(a.card {
             add(a.text("운행기록부 머리말", 20f, bold = true))
-            add(a.text("법인세법용 운행기록부의 법인명·사업자번호 칸에 들어갑니다", 15f, C.SUB), top = 6)
+            add(a.text("${taxpayer.law}용 운행기록부의 ${taxpayer.nameLabel}·사업자번호 칸에 들어갑니다", 15f, C.SUB), top = 6)
+            add(a.hbox {
+                for (t in Taxpayer.values()) {
+                    add(a.choice("${t.label} (${t.law})", taxpayer == t) { c.setTaxpayer(t); a.render() }, WRAP, WRAP, end = 10)
+                }
+            }, top = 12)
             add(a.hbox {
                 add(company, 0, WRAP, 1f, end = 10)
                 add(bizNo, 0, WRAP, 1f)

@@ -5,6 +5,7 @@ import ai.chagok.app.core.EnergyEvent
 import ai.chagok.app.core.EnergyEventDetector
 import ai.chagok.app.core.Integrity
 import ai.chagok.app.core.Rfc3161
+import ai.chagok.app.core.Taxpayer
 import ai.chagok.app.core.TripClassifier
 import ai.chagok.app.core.TripEnd
 import ai.chagok.app.core.TripRecorder
@@ -125,6 +126,13 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
 
     /** 데모 모드(가상 차량·예시 데이터·시연 오버레이) 빌드인지. 실제 동작 모드는 Pleos SDK 값만 쓴다 */
     val demo: Boolean get() = BuildConfig.DEMO
+
+    val taxpayer: Taxpayer get() = Taxpayer.of(db.setting(KEY_TAXPAYER))
+
+    fun setTaxpayer(t: Taxpayer) {
+        db.setSetting(KEY_TAXPAYER, t.key)
+        notifyChanged()
+    }
 
     /** 외부 타임스탬프 기관에 날짜·해시 지문을 보낼지. 설정에서 끌 수 있고, 꺼 두면 앵커는 응답 대기로 남는다 */
     val tsaEnabled: Boolean get() = db.setting(KEY_TSA, "on") != "off"
@@ -691,6 +699,8 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
         const val KEY_POWERTRAIN = "powertrain"
         const val KEY_LAST_ODO = "last_odo"
         const val KEY_DRIVER = "driver"
+        /** 사업자 유형: personal(개인사업자, 소득세법 서식, 기본) · corp(법인, 법인세법 서식) */
+        const val KEY_TAXPAYER = "taxpayer"
         const val KEY_COMPANY = "company"
         const val KEY_BIZNO = "bizno"
         const val KEY_DEPT = "dept"

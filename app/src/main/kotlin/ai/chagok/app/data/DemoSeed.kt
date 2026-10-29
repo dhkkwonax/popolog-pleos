@@ -43,7 +43,7 @@ object DemoSeed {
 
     fun seed(db: ChagokDb, p: Powertrain, now: Long = System.currentTimeMillis()) {
         listOf(HOME, OFFICE, CLIENT_A, CLIENT_B).forEach { db.upsert(it) }
-        db.setSetting("company", "주식회사 한결상사")
+        db.setSetting("company", "한결상사")
         db.setSetting("bizno", "123-45-67890")
         db.setSetting("dept", "영업팀")
         db.saveDrivers(listOf(KIM, PARK))
