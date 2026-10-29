@@ -46,6 +46,8 @@ android {
 dependencies {
     "realImplementation"("ai.pleos.playground:Vehicle:2.3.2")
     "realImplementation"("ai.pleos.playground:FusedLocation:1.1.3")
+    // 신고용 PDF 의 검증 QR (코어만, 안드로이드 의존 없음)
+    implementation("com.google.zxing:core:3.5.3")
     // 일일 앵커의 RFC 3161 타임스탬프 요청·토큰 서명 검증
     implementation("org.bouncycastle:bcpkix-jdk18on:1.79")
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit:2.0.0")
