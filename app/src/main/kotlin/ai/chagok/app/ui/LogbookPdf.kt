@@ -1,7 +1,5 @@
 package ai.chagok.app.ui
 
-import ai.chagok.app.core.Integrity
-import ai.chagok.app.core.Rfc3161
 import ai.chagok.app.core.Taxpayer
 import ai.chagok.app.core.TaxSummary
 import ai.chagok.app.model.VehicleInfo
@@ -10,21 +8,15 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Typeface
 import android.graphics.pdf.PdfDocument
-import com.google.zxing.BarcodeFormat
-import com.google.zxing.EncodeHintType
-import com.google.zxing.qrcode.QRCodeWriter
-import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
 import java.io.ByteArrayOutputStream
 import java.util.Locale
 
 /**
  * 「업무용승용차 운행기록부」 인쇄 서식. 소득세법 고시(제2025-5호)와 법인세법 고시(제2025-8호)의 별지 서식은
  * 머리글·합계 용어만 다르므로 [Input.taxpayer] 로 고른다.
- * 서식 본문(상단 블록·표·합계)은 서식 그대로 두고, 마지막 쪽 합계 아래에 기록 무결성 검증 상자(검증 코드·QR)를 붙인다.
+ * 파일 자체의 문서 타임스탬프는 PdfIntegrity가 별도로 추가한다. 종이 검증 QR은 넣지 않는다.
  */
 object LogbookPdf {
-    const val VERIFY_URL = "https://verify.popolog.app/v1"
-
     data class Input(
         val year: Int,
         val rows: List<List<String>>,
@@ -32,15 +24,8 @@ object LogbookPdf {
         val vehicle: VehicleInfo,
         val company: String,
         val bizNumber: String,
-        val finalHash: String,
-        val chainCount: Int,
-        val lastAnchor: Integrity.DailyAnchor?,
         val taxpayer: Taxpayer = Taxpayer.PERSONAL,
     )
-
-    fun qrText(i: Input): String =
-        "$VERIFY_URL?h=${i.finalHash}&p=${i.year}0101-${i.year}1231&n=${i.rows.size}&c=${i.chainCount}" +
-            (i.lastAnchor?.let { "&a=${it.day}" } ?: "") + if (ai.chagok.app.BuildConfig.DEMO) "&demo=1" else ""
 
     private const val W = 842 // A4 landscape, points
     private const val H = 595
@@ -57,11 +42,6 @@ object LogbookPdf {
     private const val FIRST_ROWS = ((CONTENT_BOTTOM - TOTALS_RESERVE - FIRST_TABLE_TOP - TABLE_HEAD_H) / ROW_H).toInt() // 14
     private const val NEXT_ROWS = ((CONTENT_BOTTOM - TOTALS_RESERVE - NEXT_TABLE_TOP - TABLE_HEAD_H) / ROW_H).toInt() // 21
 
-    // 마지막 쪽은 합계 아래에 검증 상자가 들어가므로 표 행이 그만큼 적다
-    private const val VERIFY_H = 64f
-    private const val VERIFY_RESERVE = 6f + VERIFY_H
-    private const val FIRST_LAST_ROWS = ((CONTENT_BOTTOM - TOTALS_RESERVE - VERIFY_RESERVE - FIRST_TABLE_TOP - TABLE_HEAD_H) / ROW_H).toInt() // 10
-    private const val NEXT_LAST_ROWS = ((CONTENT_BOTTOM - TOTALS_RESERVE - VERIFY_RESERVE - NEXT_TABLE_TOP - TABLE_HEAD_H) / ROW_H).toInt() // 17
     private val widths = floatArrayOf(74f, 70f, 60f, 87f, 87f, 70f, 82f, 90f, 162f)
 
     fun build(i: Input): ByteArray {
@@ -74,16 +54,10 @@ object LogbookPdf {
             val first = pageIndex == 0
             val last = pageIndex == pages.lastIndex
             if (first) drawHeader(c, i) else left(c, "2. 업무용 사용비율 계산 (계속)", M, NEXT_TABLE_TOP - 12f, 10f, bold = true)
-            val rowCount = when {
-                first && last -> FIRST_LAST_ROWS
-                first -> FIRST_ROWS
-                last -> NEXT_LAST_ROWS
-                else -> NEXT_ROWS
-            }
+            val rowCount = if (first) FIRST_ROWS else NEXT_ROWS
             val tableBottom = drawTable(c, rows, if (first) FIRST_TABLE_TOP else NEXT_TABLE_TOP, rowCount)
             if (last) {
                 drawTotals(c, i, tableBottom + 8f)
-                drawVerification(c, i, tableBottom + 8f + 38f + 6f)
             }
             if (pages.size > 1) centered(c, "${pageIndex + 1} / ${pages.size}", W / 2f, H - 14f, 8f, color = GRAY)
             doc.finishPage(page)
@@ -95,23 +69,20 @@ object LogbookPdf {
         }
     }
 
-    /** 첫 쪽·중간 쪽은 가득 채우고, 마지막 쪽은 합계와 검증 상자가 들어갈 만큼만 담는다 */
+    /** 모든 쪽에 합계 공간을 남겨 두고 첫 쪽·후속 쪽 용량으로 나눈다. */
     private fun splitRows(rows: List<List<String>>): List<List<List<String>>> {
         val out = ArrayList<List<List<String>>>()
         var idx = 0
         while (true) {
             val first = out.isEmpty()
             val cap = if (first) FIRST_ROWS else NEXT_ROWS
-            val capLast = if (first) FIRST_LAST_ROWS else NEXT_LAST_ROWS
             val remaining = rows.size - idx
-            if (remaining <= capLast) {
+            if (remaining <= cap) {
                 out += rows.subList(idx, rows.size)
                 return out
             }
-            // 남은 행이 마지막 쪽 한도보다 많고 한 쪽에는 다 들어가면, 마지막 쪽 한도만큼만 싣고 나머지는 다음 쪽으로 넘긴다
-            val take = if (remaining > cap) cap else capLast
-            out += rows.subList(idx, idx + take)
-            idx += take
+            out += rows.subList(idx, idx + cap)
+            idx += cap
         }
     }
 
@@ -226,37 +197,6 @@ object LogbookPdf {
         line(c, M, top + h, W - M, top + h)
         line(c, M, top + h * 2, W - M, top + h * 2)
         for (x in listOf(M, xs[3], xs[6], xs[8], W - M)) line(c, x, top, x, top + h * 2)
-    }
-
-    /** 기록 무결성 검증 상자: 검증 코드(체인 최종 해시 앞 16자리)와 QR. 서식 본문 아래, 마지막 쪽에만 둔다 */
-    private fun drawVerification(c: Canvas, i: Input, top: Float) {
-        rect(c, M, top, W - 2 * M, VERIFY_H)
-        drawQr(c, qrText(i), M + 6f, top + 2f, 60f)
-        val x = M + 76f
-        left(c, "기록 무결성 검증", x, top + 14f, 9f, bold = true)
-        val mono = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            textSize = 13f
-            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
-            color = Color.BLACK
-        }
-        c.drawText("검증 코드 " + Integrity.verifyCode(i.finalHash), x, top + 30f, mono)
-        val tsa = i.lastAnchor?.receipt?.takeIf { Rfc3161.isSigned(it) }
-            ?.let { "RFC 3161 타임스탬프 ${Rfc3161.host(it)}" } ?: "기관 타임스탬프 대기"
-        val anchor = i.lastAnchor?.let { " · 최종 앵커 ${it.day}" }.orEmpty()
-        left(c, "체인 ${i.chainCount}줄 · 운행 ${i.rows.size}건$anchor · $tsa", x, top + 44f, 8f)
-        left(c, "QR 또는 앱의 검증 페이지·검증 파일로 기록이 바뀌지 않았는지 다시 계산해 확인할 수 있습니다", x, top + 57f, 7.5f, color = GRAY)
-    }
-
-    private fun drawQr(c: Canvas, text: String, x: Float, y: Float, size: Float) {
-        val m = QRCodeWriter().encode(
-            text, BarcodeFormat.QR_CODE, 0, 0,
-            mapOf(EncodeHintType.ERROR_CORRECTION to ErrorCorrectionLevel.L, EncodeHintType.MARGIN to 0),
-        )
-        val cell = size / m.width
-        val p = Paint().apply { color = Color.BLACK; style = Paint.Style.FILL }
-        for (yy in 0 until m.height) for (xx in 0 until m.width) {
-            if (m.get(xx, yy)) c.drawRect(x + xx * cell, y + yy * cell, x + (xx + 1) * cell, y + (yy + 1) * cell, p)
-        }
     }
 
     private fun km(value: Double) = String.format(Locale.US, "%.1f", value)

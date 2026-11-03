@@ -129,3 +129,9 @@ WSL 의 GPU 통로(dxg)가 `dxgkio_create_allocation: Ioctl failed: -75 (EOVERFL
 ## Virtual Console (차량 값 조작)
 
 기기 8088 포트에 Virtual Console 웹서버가 있다. 읽기(`/vehicle/state`)는 되지만 쓰기는 `emulator_inactive` 로 거부된다.
+
+## 실사용 스크린샷 촬영 규칙
+
+- 화면에는 Popolog를 하나만 표시한다. 개발용 별도 패키지로 데이터를 격리하더라도 다른 Popolog 시연 앱과 나란히 띄워 촬영하지 않는다.
+- 2col은 Popolog 하나가 앱 영역 두 칸을 사용하는 배치다. 1col은 Popolog 옆에 실제 내비게이션 등 다른 용도의 앱이 있는 배치로 촬영한다.
+- 파일명의 1col/2col은 전체 디스플레이가 아니라 Popolog Activity의 실제 창 크기로 판단한다. 시스템 화면과 앱을 합성하거나 사용 불가능한 구성을 제출용 이미지로 남기지 않는다.

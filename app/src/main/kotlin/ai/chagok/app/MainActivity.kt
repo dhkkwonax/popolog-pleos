@@ -19,11 +19,19 @@ import ai.chagok.app.ui.icon
 import ai.chagok.app.ui.iconDrawable
 import ai.chagok.app.ui.HomeScreen
 import ai.chagok.app.ui.LedgerScreen
+import ai.chagok.app.ui.adminGate
+import ai.chagok.app.ui.requireAdmin
+import ai.chagok.app.ui.reauthenticateAdmin
 import ai.chagok.app.ui.LogbookScreen
 import ai.chagok.app.ui.MATCH
 import ai.chagok.app.ui.PlacesScreen
+import ai.chagok.app.ui.backupControls
+import ai.chagok.app.data.RecordBackup
+import android.net.Uri
+import android.provider.DocumentsContract
 import ai.chagok.app.ui.SettingsScreen
 import ai.chagok.app.ui.TaxScreen
+import ai.chagok.app.ui.PdfControls
 import ai.chagok.app.ui.WRAP
 import ai.chagok.app.ui.add
 import ai.chagok.app.ui.button
@@ -65,6 +73,11 @@ class MainActivity : Activity() {
     lateinit var controller: AppController
         private set
 
+    lateinit var backup: RecordBackup
+        private set
+    private var folderPurpose = "backup"
+    val pdfFiles by lazy { PdfControls(this) }
+
     enum class Tab(val label: String, val icon: Ic) {
         HOME("홈", Ic.HOME),
         LEDGER("장부", Ic.LEDGER),
@@ -93,8 +106,38 @@ class MainActivity : Activity() {
     private lateinit var rail: LinearLayout
     private lateinit var statusBar: LinearLayout
     private var renderedKey = ""
+    var adminUiEpoch = 0L
+        private set
+    var adminForeground = false
+        private set
+    private var observedAdminGeneration = 0L
+    private val openDialogs = mutableListOf<Dialog>()
+
+    fun lockAdmin() {
+        controller.admin.lock()
+        invalidateAdminUi()
+        if (::content.isInitialized) render()
+    }
+
+    private fun invalidateAdminUi() {
+        adminUiEpoch++
+        openDialogs.toList().forEach { it.dismiss() }
+        observedAdminGeneration = controller.admin.generation
+    }
+
+    override fun onResume() {
+        super.onResume()
+        adminForeground = true
+    }
+
+    override fun onPause() {
+        adminForeground = false
+        lockAdmin()
+        super.onPause()
+    }
 
     private val onChanged: () -> Unit = {
+        if (observedAdminGeneration != controller.admin.generation) invalidateAdminUi()
         updateStatus()
         val key = dataKey()
         if (key != renderedKey) render()
@@ -103,7 +146,9 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         setTheme(android.R.style.Theme_Material_NoActionBar)
         super.onCreate(savedInstanceState)
+        folderPurpose = savedInstanceState?.getString("backup_folder_purpose") ?: "backup"
         controller = AppController(this)
+        backup = RecordBackup(this, controller) { if (::content.isInitialized) render() }
         controller.typedInputHandler = ::speechSimDialog
         controller.flows.openExpenseInput = { draft -> showExpenseInput(draft) }
         applyDayNight()
@@ -113,11 +158,110 @@ class MainActivity : Activity() {
         controller.addListener(onChanged)
         requestCarPermissions()
         controller.start()
+        backup.start()
         render()
-        window.decorView.post { handleGleo(intent) }
+        window.decorView.post { if (!controller.dataSuspended) handleGleo(intent) }
         // 실제 동작 모드는 처음 실행할 때 개인정보 처리 안내를 한 번 보여 준다 (설정에서 다시 볼 수 있다)
-        if (!controller.demo && controller.db.setting(AppController.KEY_PRIVACY_ACK) != "1") {
+        if (!controller.dataSuspended && !controller.demo && controller.db.setting(AppController.KEY_PRIVACY_ACK) != "1") {
             window.decorView.post { showPrivacyNotice(firstRun = true) }
+        }
+    }
+
+    fun chooseBackupFolder(purpose: String) {
+        if (backup.busy || controller.isDriving) { toast("정차 후 작업이 끝나면 다시 시도하세요"); return }
+        folderPurpose = purpose
+        val picker = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION or Intent.FLAG_GRANT_PREFIX_URI_PERMISSION)
+            putExtra(Intent.EXTRA_LOCAL_ONLY, true)
+        }
+        try { startActivityForResult(picker, REQ_BACKUP_FOLDER) }
+        catch (_: ActivityNotFoundException) { toast("이 기기는 폴더 선택기를 제공하지 않아 백업을 설정할 수 없습니다") }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putString("backup_folder_purpose", folderPurpose)
+        super.onSaveInstanceState(outState)
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == PdfControls.REQUEST_PDF) {
+            if (resultCode == RESULT_OK) data?.data?.let(pdfFiles::onFileSelected)
+            return
+        }
+        if (requestCode != REQ_BACKUP_FOLDER || resultCode != RESULT_OK) return
+        val uri = data?.data ?: return
+        try {
+            require(uri.authority == "com.android.externalstorage.documents") { "기기 내 폴더를 선택하세요" }
+            contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+            backup.selectFolder(uri, folderPurpose == "sale", folderPurpose != "restore")
+            if (folderPurpose == "restore") showBackupCandidates()
+            else if (folderPurpose != "sale") backup.retry()
+            render()
+        } catch (e: Exception) { toast(e.message ?: "폴더 접근 권한이 필요합니다") }
+    }
+
+    fun showBackupCandidates() {
+        if (!requireAdmin()) return
+        backup.candidates { docs ->
+            if (!controller.canManage || !adminForeground) return@candidates
+            if (docs.isEmpty()) { toast("완료된 백업이 없습니다"); return@candidates }
+            val body = vbox {
+                setPadding(dp(24), 0, dp(24), 0)
+                docs.forEachIndexed { i, doc ->
+                    add(button("백업 ${i + 1} 복구", BtnStyle.SECONDARY) {
+                        dialog("전체 기록을 교체할까요?", text("현재 기록은 선택한 백업으로 교체됩니다. 병합하지 않습니다. 취소하면 현재 기록을 유지합니다.", 16f, C.SUB), "복구") {
+                            if (controller.isDriving) toast("정차 후 복구하세요") else backup.restore(doc)
+                        }
+                    }, top = 8)
+                }
+            }
+            dialog("완료된 백업 · 최신순", ScrollView(this).apply { addView(body) }, null) {}
+        }
+    }
+
+    fun confirmSaleDeletion() {
+        if (!requireAdmin()) return
+        reauthenticateAdmin { showSaleDeletion() }
+    }
+
+    private fun showSaleDeletion() {
+        if (backup.busy || controller.isDriving) { toast("정차 후 작업이 끝나면 다시 시도하세요"); return }
+        val scope = vbox {
+            setPadding(dp(24), dp(8), dp(24), 0)
+            add(text(controller.gateway.info.title, 17f, bold = true))
+            add(text("운행·비용·좌표·검증 이력과 백업, 앱이 만든 내보내기 파일을 모두 삭제합니다.", 16f), top = 12)
+            add(text("보존기간이 남은 기록도 삭제됩니다. 필요한 세무 증빙은 먼저 별도로 보관해 주세요.", 15f, C.SUB), top = 12)
+            add(text("삭제한 기록은 복구할 수 없습니다. 외부로 공유·복사한 파일은 직접 관리해야 합니다.", 14f, C.SUB), top = 12)
+        }
+        dialog("차량 기록을 모두 지울까요?", scope, "계속", destructive = false) {
+            val input = editText("삭제", InputType.TYPE_CLASS_TEXT)
+            val body = vbox {
+                setPadding(dp(24), dp(8), dp(24), 0)
+                add(text("이 차량의 기록과 백업을 모두 지웁니다.\n이 작업은 되돌릴 수 없습니다.", 16f))
+                add(text("확인 문구: 삭제", 16f, bold = true), top = 20)
+                add(input, top = 8)
+            }
+            val confirmation = dialog("전체 삭제 최종 확인", body, "모든 데이터 삭제", destructive = true) {
+                if (input.text.toString() == "삭제" && requireAdmin() && controller.admin.recentlyVerified()) {
+                    runCatching { backup.deleteForSale() }.onFailure { toast(it.message ?: "삭제 시작 실패") }
+                } else toast("입력이 일치하지 않아 취소했습니다")
+            }
+            val submit = confirmation.window?.decorView?.findViewWithTag<TextView>("dialog-positive")
+            fun setReady() {
+                val ready = input.text.toString() == "삭제"
+                submit?.apply {
+                    isEnabled = ready
+                    setTextColor(if (ready) C.SURFACE else C.SUB)
+                    background = pressable(rounded(if (ready) C.RED else C.SURFACE2, 8))
+                }
+            }
+            setReady()
+            input.addTextChangedListener(object : android.text.TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) { setReady() }
+                override fun afterTextChanged(s: android.text.Editable?) {}
+            })
         }
     }
 
@@ -125,22 +269,34 @@ class MainActivity : Activity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        handleGleo(intent)
+        if (!controller.dataSuspended) handleGleo(intent)
     }
 
     /** 개인정보 처리 안내 (초안). 처음 실행이면 확인 버튼으로 확인 기록을 남긴다 */
     fun showPrivacyNotice(firstRun: Boolean = false) {
         val body = vbox {
             setPadding(dp(24), dp(4), dp(24), dp(4))
-            ai.chagok.app.core.PrivacyNotice.sections.forEachIndexed { i, s ->
+            ai.chagok.app.core.PrivacyNotice.sections(
+                controller.db.setting(AppController.KEY_COMPANY), controller.db.setting(AppController.KEY_PRIVACY_CONTACT),
+            ).forEachIndexed { i, s ->
                 add(text(s.title, 17f, bold = true), top = if (i == 0) 0 else 16)
                 add(text(s.body, 15f, C.SUB), top = 6)
             }
         }
         val scroll = ScrollView(this).apply { addView(body) }
-        val d = dialog("개인정보 처리 안내", scroll, if (firstRun) "확인했어요" else null) {
+        // 음성은 안내를 본 뒤 고른다: 확인만 하면 음성 없이 화면 입력으로 쓰고, 설정에서 바꿀 수 있다
+        var dlg: Dialog? = null
+        val extra = if (firstRun && controller.voiceUndecided) listOf("음성도 사용" to {
             controller.db.setSetting(AppController.KEY_PRIVACY_ACK, "1")
+            controller.setVoiceEnabled(true)
+            dlg?.dismiss()
+            Unit
+        }) else emptyList()
+        val d = dialog("개인정보 처리 안내", scroll, if (firstRun) (if (controller.voiceUndecided) "확인했어요 (음성 없이)" else "확인했어요") else null, extra) {
+            controller.db.setSetting(AppController.KEY_PRIVACY_ACK, "1")
+            if (controller.voiceUndecided) controller.setVoiceEnabled(false)
         }
+        dlg = d
         // 긴 글이 화면 밖으로 나가지 않게 높이를 제한한다
         scroll.layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, (resources.displayMetrics.heightPixels * 0.6).toInt())
         d.setCancelable(!firstRun)
@@ -195,13 +351,16 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
+        pdfFiles.close()
         controller.removeListener(onChanged)
         controller.stop()
+        backup.close()
         super.onDestroy()
     }
 
     /** 테마를 바꾸고 바로 다시 그린다 */
     fun applyThemeMode(mode: String) {
+        if (controller.dataSuspended) return
         controller.db.setSetting(AppController.KEY_THEME, mode)
         applyDayNight()
         buildShell()
@@ -241,7 +400,7 @@ class MainActivity : Activity() {
             onDragEnd = {
                 val p = overlayLp().leftMargin.toFloat() / stage.width to overlayLp().topMargin.toFloat() / stage.height
                 overlayPos = p
-                controller.db.setSetting(KEY_OVERLAY_POS, "${p.first},${p.second}")
+                if (!controller.dataSuspended) controller.db.setSetting(KEY_OVERLAY_POS, "${p.first},${p.second}")
             },
         )
         stage.addView(overlayHost, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.TOP or Gravity.START))
@@ -261,6 +420,7 @@ class MainActivity : Activity() {
 
     private fun renderOverlay() {
         overlayHost.removeAllViews()
+        if (controller.dataSuspended) { overlayHost.visibility = View.GONE; return }
         val v = DemoOverlay(this).render(demoExpanded) {
             demoExpanded = !demoExpanded
             renderOverlay()
@@ -269,7 +429,7 @@ class MainActivity : Activity() {
         // 본문이 다 놓인 뒤에야 빈 곳을 잴 수 있다. 자리를 잡기 전에는 왼쪽 위(0,0)에 잠깐 떠서
         // 본문을 가리거나 잘못 눌릴 수 있으므로, 자리를 잡을 때까지 숨겨 둔다
         overlayHost.visibility = View.INVISIBLE
-        stage.post { placeOverlay(); overlayHost.visibility = View.VISIBLE }
+        stage.post { if (!controller.dataSuspended) { placeOverlay(); overlayHost.visibility = View.VISIBLE } }
     }
 
     private fun overlayLp() = overlayHost.layoutParams as FrameLayout.LayoutParams
@@ -404,7 +564,7 @@ class MainActivity : Activity() {
 
     private fun dataKey(): String = with(controller) {
         listOf(
-            tab, trips.size, trips.firstOrNull()?.let { it.id to it.purpose }, expenses.size,
+            dataSuspended, canManage, admin.configured, tab, trips.size, trips.firstOrNull()?.let { it.id to it.purpose }, expenses.size,
             expenses.count { it.pendingAmount }, expenses.sumOf { it.amountWon }, places.size,
             askTripId, askExpenseId, monthOffset, powertrain, lastNotice,
             driver?.driver?.id, driver?.method, driverGreeting, drivers,
@@ -416,12 +576,15 @@ class MainActivity : Activity() {
     }
 
     fun render() {
+        observedAdminGeneration = controller.admin.generation
         renderedKey = dataKey()
         renderRail()
         updateStatus()
         renderOverlay()
         content.removeAllViews()
-        val view = when (tab) {
+        val view = if (controller.dataSuspended) backupControls()
+        else if ((tab == Tab.LOGBOOK || tab == Tab.TAX || tab == Tab.LEDGER) && !controller.canManage) adminGate()
+        else when (tab) {
             Tab.HOME -> HomeScreen(this).render()
             Tab.LEDGER -> LedgerScreen(this).render()
             Tab.LOGBOOK -> LogbookScreen(this).render()
@@ -457,7 +620,7 @@ class MainActivity : Activity() {
         }
         statusBar.add(title, 0, WRAP, 1f)
         // 칩은 하나만: 지금 운전석에 앉은 사람. 눌러서 바꿀 수 있다
-        c.driver?.let { d ->
+        c.driver?.takeIf { !c.dataSuspended }?.let { d ->
             val who = chip("${d.driver.name} · ${d.method.label}", C.TEXT, C.SURFACE2, 15f).apply {
                 setCompoundDrawablesRelative(iconDrawable(Ic.PERSON, C.SUB, 18), null, null, null)
                 compoundDrawablePadding = dp(6)
@@ -471,6 +634,7 @@ class MainActivity : Activity() {
 
     /** 운전자 고르기. 시동 때 자동으로 정해지지만 틀렸으면 여기서 바꾼다 */
     fun pickDriver() {
+        if (controller.dataSuspended) return
         val list = vbox().apply { setPadding(dp(24), 0, dp(24), dp(8)) }
         lateinit var dlg: Dialog
         for (d in controller.drivers) {
@@ -507,11 +671,14 @@ class MainActivity : Activity() {
     }
 
     fun askAmountByKeypad(e: Expense) {
+        if (!controller.canEditExpense(e.id)) { requireAdmin(); return }
         val detail = e.quantity?.let { "감지량 약 ${AppController.fmt1(it)}${if (e.category.name == "CHARGE") "kWh" else "L"} · ${e.memo}" }.orEmpty()
         askAmountPad("${e.category.label} 금액 입력", detail) { v -> controller.setExpenseAmount(e.id, v, ExpenseSource.MANUAL) }
     }
 
     fun choosePurpose(t: Trip) {
+        if (controller.isTripLocked(t.id)) { toast("제출 완료로 확인된 운행은 변경할 수 없어요"); return }
+        if (!controller.canEditTrip(t.id)) { requireAdmin(); return }
         val options = TripPurpose.values().filter { it != TripPurpose.UNCLASSIFIED }
         var dlg: Dialog? = null
         val body = vbox {
@@ -529,6 +696,8 @@ class MainActivity : Activity() {
 
     /** 세무 운행기록부에 기재할 차량 이용자를 운행별로 확인한다. */
     fun chooseLogbookUser(t: Trip) {
+        if (controller.isTripLocked(t.id)) { toast("제출 완료로 확인된 운행은 변경할 수 없어요"); return }
+        if (!controller.canEditTrip(t.id)) { requireAdmin(); return }
         if (controller.drivers.isEmpty()) {
             toast("설정에서 차량 이용자를 먼저 등록해 주세요")
             select(Tab.SETTINGS)
@@ -587,7 +756,7 @@ class MainActivity : Activity() {
      * 앱과 같은 어두운 표면의 대화상자. 시스템 밝은 대화상자는 차량 화면에서 따로 놀았다.
      * 채운 버튼은 [positive] 하나뿐이고, 닫기는 글자 버튼이다.
      */
-    fun dialog(title: String, body: View, positive: String?, extra: List<Pair<String, () -> Unit>> = emptyList(), onOk: () -> Unit): Dialog {
+    fun dialog(title: String, body: View, positive: String?, extra: List<Pair<String, () -> Unit>> = emptyList(), destructive: Boolean = false, onOk: () -> Unit): Dialog {
         val d = Dialog(this)
         d.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
         val panel = vbox {
@@ -597,13 +766,19 @@ class MainActivity : Activity() {
             add(body)
             add(hbox(Gravity.END or Gravity.CENTER_VERTICAL) {
                 setPadding(dp(24), dp(16), dp(24), 0)
-                add(button("닫기", BtnStyle.GHOST) { d.dismiss() }, WRAP, WRAP)
+                add(button("닫기", BtnStyle.GHOST) { d.dismiss() }.apply { tag = "dialog-close" }, WRAP, WRAP)
                 for ((label, run) in extra) {
-                    add(button(label, BtnStyle.SECONDARY) { run() }, WRAP, WRAP)
+                    add(button(label, BtnStyle.SECONDARY) { if (!controller.dataSuspended) run() }, WRAP, WRAP)
                         .also { (it.layoutParams as LinearLayout.LayoutParams).marginStart = dp(10) }
                 }
                 if (positive != null) {
-                    add(button(positive, BtnStyle.PRIMARY) { d.dismiss(); onOk() }, WRAP, WRAP)
+                    add(button(positive, BtnStyle.PRIMARY) { d.dismiss(); if (!controller.dataSuspended) onOk() else toast("기록 작업이 중단되어 있습니다") }.apply {
+                        tag = "dialog-positive"
+                        if (destructive) {
+                            setTextColor(C.SURFACE)
+                            background = pressable(rounded(C.RED, 8))
+                        }
+                    }, WRAP, WRAP)
                         .also { (it.layoutParams as LinearLayout.LayoutParams).marginStart = dp(10) }
                 }
             })
@@ -615,12 +790,15 @@ class MainActivity : Activity() {
             setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
             setLayout(minOf(dp(640), (resources.displayMetrics.widthPixels * 0.9).toInt()), android.view.WindowManager.LayoutParams.WRAP_CONTENT)
         }
+        openDialogs += d
+        d.setOnDismissListener { openDialogs.remove(d) }
         d.show()
         return d
     }
 
     /** PDF 를 쪽별 그림으로 보여 주고(‹ › 로 넘김), [onSave] 로 저장한다. 임시 파일은 그릴 때만 만들고 바로 지운다 */
-    fun showPdfPreview(title: String, pdf: ByteArray, caption: String, extra: List<Pair<String, () -> Unit>> = emptyList(), onSave: () -> Unit) {
+    fun showPdfPreview(title: String, pdf: ByteArray, caption: String, extra: List<Pair<String, () -> Unit>> = emptyList(), onSave: () -> Unit): Dialog? {
+        if (!requireAdmin()) return null
         val win = resources.displayMetrics
         // 대화상자 안에 제목·버튼이 함께 들어가도록 높이 기준으로도 줄인다 (A4 가로 = 1.414:1)
         val w = minOf((win.widthPixels * 0.9).toInt() - dp(48), ((win.heightPixels * 0.62) * 1.414).toInt())
@@ -661,12 +839,14 @@ class MainActivity : Activity() {
             "‹" to { show(page - 1) },
             "›" to { show(page + 1) },
         ) else emptyList()
-        val d = dialog(title, body, "PDF 저장", paging + extra, onSave)
+        val d = dialog(title, body, "PDF 저장", paging + extra, onOk = onSave)
         d.window?.setLayout(w + dp(48), android.view.WindowManager.LayoutParams.WRAP_CONTENT)
+        return d
     }
 
     /** 운행기록부 PDF 미리보기에서 여는 별도 검증 페이지. 체인·앵커를 다시 계산해 일치 여부를 보여 준다. */
     fun showVerifyPage(qr: String, ledgerJson: String) {
+        if (!requireAdmin()) return
         val web = android.webkit.WebView(this)
         web.settings.javaScriptEnabled = true
         web.webViewClient = object : android.webkit.WebViewClient() {
@@ -684,7 +864,7 @@ class MainActivity : Activity() {
 
     /** 대화상자의 선택지: 모두 같은 모양, 지금 값만 ✓ 와 회색 알약 테두리 */
     fun choice(label: String, current: Boolean, onClick: () -> Unit): TextView =
-        button(label, BtnStyle.SECONDARY, icon = if (current) Ic.CHECK else null) { onClick() }.apply {
+        button(label, BtnStyle.SECONDARY, icon = if (current) Ic.CHECK else null) { if (!controller.dataSuspended) onClick() }.apply {
             if (current) background = pressable(rounded(C.NAV_ACTIVE, 16, C.SUB))
         }
 
@@ -695,6 +875,7 @@ class MainActivity : Activity() {
 
     /** 다운로드 폴더(Download/Popolog)에 저장 */
     fun saveFile(fileName: String, bytes: ByteArray, mime: String) {
+        if (!requireAdmin()) return
         try {
             if (Build.VERSION.SDK_INT >= 29) {
                 val values = ContentValues().apply {
@@ -704,6 +885,7 @@ class MainActivity : Activity() {
                 }
                 val uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
                     ?: throw IllegalStateException("MediaStore insert failed")
+                backup.track(uri, fileName)
                 contentResolver.openOutputStream(uri)!!.use { it.write(bytes) }
             } else {
                 File(getExternalFilesDir(null), fileName).writeBytes(bytes)
@@ -717,6 +899,7 @@ class MainActivity : Activity() {
     }
 
     fun shareCsv(subject: String, csv: String) {
+        if (!requireAdmin()) return
         val send = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
             putExtra(Intent.EXTRA_SUBJECT, subject)
@@ -730,6 +913,7 @@ class MainActivity : Activity() {
     }
 
     companion object {
+        private const val REQ_BACKUP_FOLDER = 43
         private const val REQ_CAR_PERMISSIONS = 42
         private const val KEY_OVERLAY_POS = "demo_overlay_pos"
         const val THEME_AUTO = "auto"

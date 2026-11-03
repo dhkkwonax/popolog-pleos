@@ -4,6 +4,7 @@ import ai.chagok.app.core.DriverIdentifier
 import ai.chagok.app.core.EnergyEvent
 import ai.chagok.app.core.EnergyEventDetector
 import ai.chagok.app.core.Integrity
+import ai.chagok.app.core.Retention
 import ai.chagok.app.core.Rfc3161
 import ai.chagok.app.core.Taxpayer
 import ai.chagok.app.core.TripClassifier
@@ -43,6 +44,46 @@ import java.util.concurrent.Executors
  */
 class AppController(private val context: Context) : VehicleGateway.Listener, TripRecorder.Listener {
     val db = ChagokDb(context)
+    val admin = ai.chagok.app.data.AdminAuth(context)
+    val canManage: Boolean get() = admin.unlocked && !isDriving && !dataSuspended
+    var currentTripId: Long? = null
+        private set
+    fun canEditTrip(id: Long): Boolean = !isDriving && !dataSuspended && !isTripLocked(id) && (canManage || currentTripId == id)
+    fun canEditExpense(id: Long): Boolean = !isDriving && !dataSuspended && !isExpenseLocked(id) && (canManage || askExpenseId == id)
+
+    /** 관리자가 제출 완료를 확인한 묶음. 포함된 운행·비용은 수정·삭제할 수 없다 */
+    var submissions: List<Retention.Submission> = emptyList()
+        private set
+    private var lockedTrips: Set<Long> = emptySet()
+    private var lockedExpenses: Set<Long> = emptySet()
+    fun isTripLocked(id: Long) = id in lockedTrips
+    fun isExpenseLocked(id: Long) = id in lockedExpenses
+    private val maintenanceLock = Any()
+    @Volatile var dataSuspended = context.getSharedPreferences("record_backup", Context.MODE_PRIVATE).let { it.getString("sale", "").orEmpty().isNotEmpty() || it.getBoolean("restoring", false) }
+        private set
+    private var writeEpoch = 0
+
+    fun pauseRecords() {
+        admin.lock()
+        currentTripId = null
+        synchronized(maintenanceLock) { dataSuspended = true; writeEpoch++ }
+        handler.removeCallbacksAndMessages(null)
+        if (::gateway.isInitialized) gateway.stop()
+        if (::navi.isInitialized) navi.stop()
+        if (::voice.isInitialized) {
+            assistant.clear()
+            voice.shutdown()
+        }
+        stamping = false
+    }
+
+    fun resumeRecords() {
+        dataSuspended = false
+        driver = null; driverGreeting = null; askTripId = null; askExpenseId = null
+        odoKm = 0.0; tickDay = null
+        start()
+        notifyChanged()
+    }
     lateinit var gateway: VehicleGateway
         private set
 
@@ -113,6 +154,28 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
     lateinit var navi: NaviBridge
         private set
 
+    /**
+     * 음성 사용 선택. 데모는 항상 켜짐, 실제 모드는 처음 안내를 보고 고르기 전까지 꺼짐이다.
+     * 끄면 앱은 말하지도 듣지도 않고 모든 질문을 화면 버튼·입력으로 받는다.
+     */
+    val voiceEnabled: Boolean get() = db.setting(KEY_VOICE, if (demo) "on" else "") == "on"
+
+    val voiceUndecided: Boolean get() = !demo && db.setting(KEY_VOICE).isEmpty()
+
+    private fun makeVoice(): VoiceIo =
+        if (voiceEnabled) VoiceFactory.create(context) { typedInputHandler } else ai.chagok.app.voice.TextOnlyVoice { typedInputHandler }
+
+    fun setVoiceEnabled(on: Boolean) {
+        if (dataSuspended) return
+        db.setSetting(KEY_VOICE, if (on) "on" else "off")
+        if (::voice.isInitialized) {
+            assistant.clear()
+            voice.shutdown()
+            voice = makeVoice()
+        }
+        notifyChanged()
+    }
+
     /** 말한 내용을 화면에서 입력받는 창을 여는 훅 (MainActivity 가 정한다) */
     var typedInputHandler: ((String, (String?) -> Unit) -> Unit)? = null
 
@@ -134,6 +197,7 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
 
     private val ticker = object : Runnable {
         override fun run() {
+            if (dataSuspended) return
             val now = gateway.now()
             recorder.tick(now)
             energy.tick(now)
@@ -147,8 +211,8 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
         }
     }
 
-    val isDriving: Boolean get() = ::recorder.isInitialized && recorder.isDriving
-    val liveTripKm: Double get() = recorder.currentTrip?.let { odoKm - it.odoKm } ?: 0.0
+    val isDriving: Boolean get() = !dataSuspended && ::recorder.isInitialized && recorder.isDriving
+    val liveTripKm: Double get() = if (!::recorder.isInitialized || dataSuspended) 0.0 else recorder.currentTrip?.let { odoKm - it.odoKm } ?: 0.0
 
     val powertrain: Powertrain
         get() = if (db.setting(KEY_POWERTRAIN, Powertrain.ICE.name) == Powertrain.EV.name) Powertrain.EV else Powertrain.ICE
@@ -159,6 +223,7 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
     val taxpayer: Taxpayer get() = Taxpayer.of(db.setting(KEY_TAXPAYER))
 
     fun setTaxpayer(t: Taxpayer) {
+        if (dataSuspended) return
         db.setSetting(KEY_TAXPAYER, t.key)
         notifyChanged()
     }
@@ -167,6 +232,7 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
     val tsaEnabled: Boolean get() = db.setting(KEY_TSA, "on") != "off"
 
     fun setTsaEnabled(on: Boolean) {
+        if (dataSuspended) return
         db.setSetting(KEY_TSA, if (on) "on" else "off")
         if (on) stampPending() else notifyChanged()
     }
@@ -181,6 +247,13 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
     private var checkGap = false
 
     fun start() {
+        if (dataSuspended) {
+            gateway = GatewayFactory.create(context, powertrain, db)
+            voice = makeVoice()
+            navi = NaviFactory.create(context)
+            reload()
+            return
+        }
         if (demo && db.setting(KEY_SEEDED) != "1") {
             DemoSeed.seed(db, powertrain)
             db.setSetting(KEY_SEEDED, "1")
@@ -189,12 +262,12 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
         // 앱이 꺼져 있던 동안 지난 날도 마감한다
         anchorPastDays(System.currentTimeMillis())
         reload()
-        voice = VoiceFactory.create(context) { typedInputHandler }
+        voice = makeVoice()
         navi = NaviFactory.create(context)
         navi.start(object : NaviBridge.Listener {
             override fun onArrived(a: Arrival) {
                 lastNaviArrival = System.currentTimeMillis()
-                handler.post { flows.onArrived(a) }
+                handler.post { if (!dataSuspended) flows.onArrived(a) }
             }
 
             override fun onCandidates(list: List<PlaceCandidate>) {
@@ -205,10 +278,11 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
         handler.post(ticker)
         stampPending()
         // 정비 시기가 된 항목이 있으면 시동 직후 정차 상태에서 한 번 알린다
-        handler.postDelayed({ flows.checkMaintenance() }, MAINT_CHECK_DELAY_MS)
+        handler.postDelayed({ if (!dataSuspended) flows.checkMaintenance() }, MAINT_CHECK_DELAY_MS)
     }
 
     fun stop() {
+        if (dataSuspended) { pauseRecords(); return }
         handler.removeCallbacks(ticker)
         handler.removeCallbacks(identifyOnIgnition)
         handler.removeCallbacks(clearGreeting)
@@ -216,6 +290,7 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
         // 다음 실행 때 꺼져 있던 동안의 거리를 잴 기준
         if (odoKm > 0) db.setSetting(KEY_LAST_ODO, odoKm.toString())
         if (demo) saveSimState()
+        synchronized(maintenanceLock) { writeEpoch++ }
         gateway.stop()
         assistant.clear()
         navi.stop()
@@ -224,6 +299,7 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
 
     /** [fresh] 가 false 면 진행 중인 운행·주유 감지 상태를 이어 간다 (같은 차에 다시 붙을 때) */
     private fun connectGateway(fresh: Boolean = true) {
+        if (dataSuspended) return
         if (fresh || !::recorder.isInitialized) {
             checkGap = true
             recorder = TripRecorder(this)
@@ -247,18 +323,21 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
 
     /** 시트·출발 시각·출발 장소·마지막 운전자로 운전자를 정한다 */
     fun identifyDriver() {
+        if (dataSuspended) return
         val origin = ai.chagok.app.core.Geo.nearestPlace(lat, lng, places)?.name.orEmpty()
-        val r = DriverIdentifier.identify(drivers, seatPosition, gateway.now(), origin, trips, db.setting(KEY_LAST_DRIVER)) ?: return
+        val r = DriverIdentifier.identify(drivers.filter(::hasConsent), seatPosition, gateway.now(), origin, trips, db.setting(KEY_LAST_DRIVER)) ?: return
         applyDriver(r)
     }
 
     /** 머리말이나 설정에서 직접 고를 때 */
     fun chooseDriver(id: String) {
+        if (dataSuspended) return
         val d = drivers.firstOrNull { it.id == id } ?: return
         applyDriver(DriverIdentifier.Result(d, DriverMethod.MANUAL))
     }
 
     private fun applyDriver(r: DriverIdentifier.Result) {
+        if (dataSuspended) return
         driver = r
         seatAtIdentify = seatPosition
         db.setSetting(KEY_LAST_DRIVER, r.driver.id)
@@ -270,9 +349,22 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
         notifyChanged()
     }
 
+    /** 위치 기록·운전자 추정에 동의한 사람인지 (데모 예시 운전자는 동의한 것으로 본다). 동의 없는 사람은 자동 추정 대상이 아니다 */
+    fun hasConsent(d: Driver): Boolean = demo || d.consentAt > 0
+
+    /** 본인이 동의를 확인했거나 철회했다 */
+    fun setDriverConsent(id: String, consent: Boolean) {
+        if (dataSuspended) return
+        drivers = drivers.map { if (it.id == id) it.copy(consentAt = if (consent) gateway.now() else 0L, seatPosition = if (consent) it.seatPosition else null) else it }
+        db.saveDrivers(drivers)
+        if (!consent && driver?.driver?.id == id && driver?.method != DriverMethod.MANUAL) driver = null
+        notifyChanged()
+    }
+
     /** 운전자 등록 (실제 동작 모드). 처음 등록한 사람은 바로 지금 운전자로 둔다 */
-    fun addDriver(name: String, department: String) {
-        val d = Driver("d" + System.currentTimeMillis().toString(36), name, department, null)
+    fun addDriver(name: String, department: String, consent: Boolean = false) {
+        if (dataSuspended) return
+        val d = Driver("d" + System.currentTimeMillis().toString(36), name, department, null, if (consent) gateway.now() else 0L)
         drivers = drivers + d
         db.saveDrivers(drivers)
         if (driver == null) chooseDriver(d.id) else notifyChanged()
@@ -280,6 +372,7 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
 
     /** 지금 운전석 위치를 이 사람의 위치로 저장 (다음 시동부터 시트로 알아본다) */
     fun saveSeatFor(id: String) {
+        if (dataSuspended || drivers.none { it.id == id && hasConsent(it) }) return
         val pos = seatPosition ?: return
         drivers = drivers.map { if (it.id == id) it.copy(seatPosition = pos) else it }
         db.saveDrivers(drivers)
@@ -288,6 +381,7 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
 
     /** 데모 설정에서 가솔린 ↔ 전기차 전환 */
     fun switchPowertrain(p: Powertrain) {
+        if (dataSuspended) return
         if (p == powertrain) return
         stopGatewayOnly()
         db.setSetting(KEY_POWERTRAIN, p.name)
@@ -297,6 +391,7 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
     }
 
     fun resetDemo() {
+        if (!canManage) return
         if (!demo) return
         stopGatewayOnly()
         val p = powertrain
@@ -314,31 +409,13 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
         notifyChanged()
     }
 
-    /**
-     * 실제 동작 모드의 '내 데이터 모두 삭제': 운행·비용·장소·운전자·해시체인·앵커·설정을 모두 지운다. 되돌릴 수 없다.
-     * 내보낸 PDF·CSV·검증 파일은 앱 밖(다운로드/Popolog)에 있어 지우지 않는다.
-     */
-    fun wipeAllData() {
-        if (demo) return
-        stopGatewayOnly()
-        db.clearAll()
-        driver = null
-        driverGreeting = null
-        askTripId = null
-        askExpenseId = null
-        lastNotice = ""
-        odoKm = 0.0
-        reload()
-        connectGateway()
-        notifyChanged()
-    }
-
     private fun stopGatewayOnly() {
         gateway.stop()
     }
 
     /** 차량 권한이 뒤늦게 승인되면 다시 연결한다 (Pleos 빌드의 런타임 권한). 주행 중이어도 운행은 끊지 않는다 */
     fun reconnectGateway() {
+        if (dataSuspended) return
         if (!::gateway.isInitialized) return
         stopGatewayOnly()
         connectGateway(fresh = false)
@@ -361,6 +438,9 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
         trips = db.trips()
         expenses = db.expenses()
         anchors = db.anchors()
+        submissions = db.submissions()
+        lockedTrips = submissions.flatMapTo(HashSet()) { it.tripIds }
+        lockedExpenses = submissions.flatMapTo(HashSet()) { it.expenseIds }
         integrity = Integrity.verify(db.ledger(), anchors, trips, expenses)
     }
 
@@ -423,21 +503,26 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
      * 기관에는 날짜와 hash 의 지문만 간다.
      */
     fun stampPending(onDone: (() -> Unit)? = null) {
-        if (!tsaEnabled) return
+        if (dataSuspended || !tsaEnabled) return
         val pending = db.anchors().filter { it.receipt.isEmpty() }
         if (pending.isEmpty() || stamping) return
         stamping = true
         notifyChanged()
+        val epoch = writeEpoch
         tsaExecutor.execute {
             var ok = 0
             for (a in pending) {
                 val receipt = Rfc3161.stamp(a.hash, a.day) ?: continue
                 val t = Rfc3161.check(receipt, a.hash, a.day)?.time ?: a.stampedAt
-                db.saveAnchor(a.copy(receipt = receipt, stampedAt = t))
+                synchronized(maintenanceLock) {
+                    if (dataSuspended || epoch != writeEpoch) return@execute
+                    db.saveAnchor(a.copy(receipt = receipt, stampedAt = t))
+                }
                 ok++
             }
             if (demo) android.util.Log.i("Popolog", "tsa stamped $ok/${pending.size}")
             handler.post {
+                if (dataSuspended || epoch != writeEpoch) return@post
                 stamping = false
                 reload()
                 notifyChanged()
@@ -453,6 +538,7 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
 
     /** '오늘 기록 앵커': 오늘까지의 마지막 hash 를 앵커로 묶고 기관(RFC 3161) 타임스탬프를 요청한다. 결과는 [onStamped] */
     fun closeDay(onStamped: ((Integrity.DailyAnchor?) -> Unit)? = null): Integrity.DailyAnchor? {
+        if (dataSuspended) return null
         val now = gateway.now()
         val a = Integrity.anchorFor(db.ledger(), Integrity.dayOf(now), now) ?: return null
         db.saveAnchor(a)
@@ -468,6 +554,7 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
      * 앱 화면을 거치지 않고 DB 를 직접 고친 것처럼, 운행 표와 체인 줄의 내용을 함께 바꾼다 (hash 는 그대로).
      */
     fun forgeRecord() {
+        if (!canManage) return
         if (forgedSeq != null) return
         val chain = db.ledger()
         val target = chain.filter { it.kind == Integrity.Kind.TRIP }.let { it.getOrNull(it.size - 25) ?: it.firstOrNull() } ?: return
@@ -482,6 +569,7 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
 
     /** 위조를 되돌린다 */
     fun undoForge() {
+        if (!canManage) return
         val f = db.setting(KEY_FORGED).split('\t')
         if (f.size < 3) return
         val seq = f[0].toLong()
@@ -499,6 +587,7 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
 
     // ---- VehicleGateway.Listener ----
     override fun onOdometer(km: Double) {
+        if (dataSuspended) return
         odoKm = km
         if (checkGap) {
             checkGap = false
@@ -509,12 +598,14 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
     }
 
     override fun onEnergyLevel(percent: Double) {
+        if (dataSuspended) return
         energyPercent = percent
         energy.onLevel(percent, gateway.now(), recorder.isDriving)
         notifyChanged()
     }
 
     override fun onParkingBrake(engaged: Boolean) {
+        if (dataSuspended) return
         parkingBrake = engaged
         recorder.onParkingBrake(engaged, gateway.now())
         if (engaged) {
@@ -525,12 +616,14 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
     }
 
     override fun onLocation(lat: Double, lng: Double) {
+        if (dataSuspended) return
         this.lat = lat
         this.lng = lng
         recorder.onLocation(lat, lng)
     }
 
     override fun onDriverSeat(position: Int) {
+        if (dataSuspended) return
         seatPosition = position
         // 주차 중에 운전석이 크게 움직였으면 다른 사람이 탄 것으로 보고 다시 판별한다 (시동 전 시트 조정)
         val before = seatAtIdentify
@@ -562,6 +655,7 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
             memo = GAP_MEMO, driver = driver?.driver?.name ?: db.setting(KEY_DRIVER),
         )
         val id = db.upsert(trip)
+        currentTripId = id
         record(Integrity.Kind.TRIP, id, Integrity.canonical(trip.copy(id = id)))
         db.setSetting(KEY_LAST_ODO, km.toString())
         reload()
@@ -574,6 +668,7 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
 
     /** 데모: 앱을 끈 채 [km] 만큼(시속 40km 로) 달린 것처럼 가상 차량을 다시 붙인다 (계기판만 늘어난 채로 다시 시동) */
     fun demoOfflineDrive(km: Double) {
+        if (dataSuspended) return
         if (!demo) return
         if (odoKm > 0) db.setSetting(KEY_LAST_ODO, odoKm.toString())
         saveSimState(extraKm = km, extraMs = (km / 40.0 * 3_600_000L).toLong())
@@ -587,6 +682,7 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
      * 다른 사람이 타려면 끈 뒤 '탑승' 으로 시트를 맞춘다.
      */
     fun demoRestartEngine() {
+        if (dataSuspended) return
         if (!demo) return
         if (::recorder.isInitialized) recorder.finish(gateway.now())
         if (odoKm > 0) db.setSetting(KEY_LAST_ODO, odoKm.toString())
@@ -605,19 +701,24 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
     }
 
     /** 시뮬레이터에서 주유·충전이 끝났음을 알릴 때 */
-    fun flushEnergy() = energy.flush(gateway.now())
+    fun flushEnergy() { if (!dataSuspended && ::energy.isInitialized) energy.flush(gateway.now()) }
 
     // ---- TripRecorder.Listener ----
     override fun onTripStarted(start: TripStart) {
+        if (dataSuspended) return
         // 시연 자동 촬영이 logcat 으로 운행 시작·끝을 확인한다 (운행 중에는 화면 읽기가 느려 쓸 수 없다)
+        admin.lock()
+        currentTripId = null
         if (demo) android.util.Log.i("Popolog", "trip started")
         lastNotice = "운행 시작 · 계기판 ${fmtKm(start.odoKm)}"
-        // 주행 중에는 묻지 않는다: 하던 질문은 멈추고 정차하면 이어서 묻는다
-        assistant.pause()
+        // 새 운행이 시작되면 이전 운행의 질문을 다음 운전자에게 노출하지 않는다
+        assistant.clear()
+        askTripId = null
         notifyChanged()
     }
 
     override fun onTripEnded(end: TripEnd) {
+        if (dataSuspended) return
         if (demo) android.util.Log.i("Popolog", "trip ended")
         val c = TripClassifier.classify(end.start.lat, end.start.lng, end.lat, end.lng, places)
         val trip = Trip(
@@ -632,6 +733,7 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
         )
         if (trip.distanceKm < 0.05) return
         val id = db.upsert(trip)
+        currentTripId = id
         record(Integrity.Kind.TRIP, id, Integrity.canonical(trip.copy(id = id)))
         db.setSetting(KEY_LAST_ODO, end.odoKm.toString())
         reload()
@@ -654,6 +756,7 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
     }
 
     private fun onEnergyEvent(e: EnergyEvent) {
+        if (dataSuspended) return
         val ev = gateway.info.powertrain == Powertrain.EV
         val qty = e.deltaPercent / 100.0 * gateway.info.energyCapacity
         val expense = Expense(
@@ -672,6 +775,7 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
 
     // ---- 사용자 입력 ----
     fun classifyTrip(id: Long, purpose: TripPurpose, by: ClassifiedBy) {
+        if (!canEditTrip(id)) return
         val t = trips.firstOrNull { it.id == id } ?: return
         val fixed = t.copy(purpose = purpose, classifiedBy = by)
         db.upsert(fixed)
@@ -683,6 +787,7 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
 
     /** 운행기록부의 사용자란은 자동 추정하지 않고 등록된 이용자 중 실제 이용자를 확인해 기록한다. */
     fun confirmLogbookUser(id: Long, user: Driver?) {
+        if (!canEditTrip(id)) return
         val t = trips.firstOrNull { it.id == id } ?: return
         val fixed = t.copy(
             logbookUser = user?.name.orEmpty(),
@@ -695,11 +800,13 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
     }
 
     fun dismissTripQuestion() {
+        if (dataSuspended) return
         askTripId = null
         notifyChanged()
     }
 
     fun setExpenseAmount(id: Long, amount: Long, source: ExpenseSource) {
+        if (!canEditExpense(id)) return
         val e = expenses.firstOrNull { it.id == id } ?: return
         val fixed = e.copy(amountWon = amount, pendingAmount = false, source = if (e.source == ExpenseSource.AUTO) source else e.source)
         db.upsert(fixed)
@@ -712,11 +819,13 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
     }
 
     fun dismissExpenseQuestion() {
+        if (dataSuspended) return
         askExpenseId = null
         notifyChanged()
     }
 
     fun saveExpense(e: Expense) {
+        if (dataSuspended || isDriving || (e.id != 0L && !canEditExpense(e.id))) return
         val id = db.upsert(e)
         record(if (e.id == 0L) Integrity.Kind.EXPENSE else Integrity.Kind.EXPENSE_FIX, id, Integrity.canonical(e.copy(id = id)))
         reload()
@@ -725,6 +834,7 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
 
     /** 확인 카드에서 저장을 누른 비용 초안을 장부에 넣는다 */
     fun saveDraft(d: ai.chagok.app.model.ExpenseDraft): Boolean {
+        if (dataSuspended || isDriving) return false
         val amount = d.amountWon ?: return false
         val e = Expense(
             time = gateway.now(), category = d.category, amountWon = amount, odoKm = odoKm.takeIf { it > 0 },
@@ -739,19 +849,96 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
     }
 
     fun deleteExpense(id: Long) {
+        if (!canManage || isExpenseLocked(id)) return
         db.deleteExpense(id)
         record(Integrity.Kind.EXPENSE_DEL, id, "deleted|$id")
         reload()
         notifyChanged()
     }
 
+    // ---- 보존 (제출 완료 확인) ----
+
+    /** 보존기간(년). 기본·최소 5년이며 늘리기만 한다 */
+    val retentionYears: Int get() = db.setting(KEY_RETENTION_YEARS).toIntOrNull()?.coerceAtLeast(Retention.MIN_YEARS) ?: Retention.MIN_YEARS
+
+    fun setRetentionYears(years: Int) {
+        if (!canManage || years < Retention.MIN_YEARS || years > 100) return
+        db.setSetting(KEY_RETENTION_YEARS, years.toString())
+        db.raiseRetention(years)
+        reload()
+        notifyChanged()
+    }
+
+    /** 제출에 포함될 운행·비용 수 (올해 [year] 의 운행, 금액이 정해진 비용) */
+    fun submissionScope(year: Int): Pair<List<Long>, List<Long>> {
+        val trips = trips.filter { yearOf(it.startTime) == year }.map { it.id }
+        val expenses = expenses.filter { yearOf(it.time) == year && !it.pendingAmount }.map { it.id }
+        return trips to expenses
+    }
+
+    private fun yearOf(t: Long) = java.util.Calendar.getInstance(ai.chagok.app.core.TaxReport.KST).apply { timeInMillis = t }.get(java.util.Calendar.YEAR)
+
+    /**
+     * 관리자가 실제 제출 완료를 확인했다. 확인한 시각이 기산점이다 (PDF 저장·공유·타임스탬프만으로는 호출되지 않는다).
+     * 포함된 운행·비용은 이때부터 변경·삭제할 수 없다. 오류 문구를 돌려주고, 성공이면 null
+     */
+    fun confirmSubmission(year: Int, statutoryEnd: String, pdfName: String, pdfSha256: String): String? {
+        if (!canManage || !admin.recentlyVerified()) return "관리자 PIN을 다시 확인해 주세요"
+        if (!Retention.validDay(statutoryEnd)) return "법정 종료일은 2031-03-31 처럼 입력해 주세요"
+        if (!integrity.ok) return "기록 무결성 검증이 맞지 않아 제출을 확인할 수 없어요"
+        val (tripIds, expenseIds) = submissionScope(year)
+        if (tripIds.isEmpty() && expenseIds.isEmpty()) return "${year}년에 제출할 기록이 없어요"
+        db.addSubmission(
+            Retention.Submission(
+                confirmedAt = gateway.now(), year = year, tripIds = tripIds, expenseIds = expenseIds,
+                pdfName = pdfName, pdfSha256 = pdfSha256, retentionYears = retentionYears, statutoryEnd = statutoryEnd,
+            ),
+        )
+        reload()
+        notifyChanged()
+        return null
+    }
+
+    fun setStatutoryEnd(id: Long, day: String): Boolean {
+        if (!canManage || !Retention.validDay(day)) return false
+        db.setStatutoryEnd(id, day)
+        reload()
+        notifyChanged()
+        return true
+    }
+
+    /** 만료일이 지난 제출. 알리기만 하고 자동으로 지우지 않는다 */
+    fun expiredSubmissions(): List<Retention.Submission> = submissions.filter { Retention.expired(it, System.currentTimeMillis()) }
+
+    // ---- 운행 단건 삭제 (미제출만) ----
+
+    /**
+     * 미제출 운행 한 건을 지우고 원장 payload·정정 이력의 원문을 파기한다. 호출 전에 화면이 영향 안내와 정확한 `삭제` 입력을 받아야 한다.
+     * 앱 관리 백업·내보내기 사본의 파기는 호출한 쪽이 이어서 한다. 오류 문구를 돌려주고, 성공이면 null
+     */
+    fun deleteTrip(id: Long): String? {
+        if (!canManage || !admin.recentlyVerified()) return "관리자 PIN을 다시 확인해 주세요"
+        if (isTripLocked(id)) return "제출 완료로 확인된 운행은 삭제할 수 없어요"
+        if (trips.none { it.id == id }) return "이미 삭제된 운행이에요"
+        val entry = Integrity.append(db.ledger(), gateway.now(), Integrity.Kind.TRIP_DEL, id, "deleted|$id")
+        db.purgeTrip(id, entry)
+        if (currentTripId == id) currentTripId = null
+        if (askTripId == id) askTripId = null
+        assistant.clear()
+        reload()
+        notifyChanged()
+        return null
+    }
+
     fun savePlace(p: Place) {
+        if (dataSuspended) return
         db.upsert(p)
         reload()
         notifyChanged()
     }
 
     fun deletePlace(id: Long) {
+        if (dataSuspended) return
         db.deletePlace(id)
         reload()
         notifyChanged()
@@ -760,7 +947,7 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
     /** 현재 차 위치를 장소로 등록 (지도 없이도 거래처를 바로 추가) */
     fun currentLocation(): Pair<Double, Double> = lat to lng
 
-    fun pendingTrip(): Trip? = askTripId?.let { id -> trips.firstOrNull { it.id == id } }
+    fun pendingTrip(): Trip? = askTripId?.let { id -> trips.firstOrNull { it.id == id && canEditTrip(id) } }
     fun pendingExpense(): Expense? = askExpenseId?.let { id -> expenses.firstOrNull { it.id == id } }
 
     companion object {
@@ -785,6 +972,12 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
         const val KEY_TSA = "tsa"
         /** 개인정보 처리 안내를 처음 실행 때 확인했는지 (실제 동작 모드) */
         const val KEY_PRIVACY_ACK = "privacy_ack"
+        /** 제출 기록 보존기간(년): 5(기본, 최소)부터 늘리기만 한다 */
+        const val KEY_RETENTION_YEARS = "retention_years"
+        /** 개인정보 문의·권리 행사 연락처 (도입 사업장이 지정) */
+        const val KEY_PRIVACY_CONTACT = "privacy_contact"
+        /** 음성 사용: on(기본) · off */
+        const val KEY_VOICE = "voice"
 
         /** 이만큼 넘게 늘었을 때만 보정 운행으로 남긴다 (계기판 반올림 오차 제외) */
         const val GAP_MIN_KM = 0.2

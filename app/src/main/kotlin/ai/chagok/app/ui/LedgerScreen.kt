@@ -45,7 +45,9 @@ fun MainActivity.monthHeader(range: MonthRange, right: View? = null): View = hbo
 class LedgerScreen(private val a: MainActivity) {
     private val c = a.controller
 
-    fun render(): View = a.vbox {
+    fun render(): View {
+        if (!c.canManage) return a.adminGate()
+        return a.vbox {
         val range = MonthRange.of(c.gateway.now(), a.monthOffset)
         val list = c.expenses.filter { range.contains(it.time) }
         val done = list.filter { !it.pendingAmount }
@@ -96,6 +98,8 @@ class LedgerScreen(private val a: MainActivity) {
                 add(row(e, fmt), top = if (i == 0) 0 else 12)
             }
         }, top = 16)
+    }
+
     }
 
     private fun row(e: Expense, fmt: SimpleDateFormat): View = a.hbox {

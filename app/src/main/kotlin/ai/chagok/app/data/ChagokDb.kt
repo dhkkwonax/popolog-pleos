@@ -1,6 +1,7 @@
 package ai.chagok.app.data
 
 import ai.chagok.app.core.Integrity
+import ai.chagok.app.core.Retention
 import ai.chagok.app.model.ClassifiedBy
 import ai.chagok.app.model.Driver
 import ai.chagok.app.model.Expense
@@ -17,7 +18,14 @@ import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 
 /** 프레임워크 SQLite만 쓰는 저장소 (외부 라이브러리 없이 빌드하기 위해 Room 대신 사용) */
-class ChagokDb(context: Context) : SQLiteOpenHelper(context, "chagok.db", null, 4) {
+class ChagokDb(context: Context) : SQLiteOpenHelper(context, "chagok.db", null, 5) {
+
+    val revision = java.util.concurrent.atomic.AtomicLong()
+
+    /** 지운 행의 내용이 빈 페이지에 남지 않게 한다 (운행 원문 파기용) */
+    override fun onOpen(db: SQLiteDatabase) {
+        db.rawQuery("PRAGMA secure_delete=ON", null).close()
+    }
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
@@ -37,6 +45,7 @@ class ChagokDb(context: Context) : SQLiteOpenHelper(context, "chagok.db", null, 
         db.execSQL("CREATE TABLE setting (k TEXT PRIMARY KEY, v TEXT)")
         createIntegrityTables(db)
         createSyncTable(db)
+        createSubmissionTable(db)
     }
 
     /** v2: 위변조 검증용 해시체인(ledger)·일일 앵커(anchor). 체인은 AppController.start 가 기존 기록으로 처음 만든다 */
@@ -51,6 +60,15 @@ class ChagokDb(context: Context) : SQLiteOpenHelper(context, "chagok.db", null, 
             db.execSQL("ALTER TABLE expense ADD COLUMN shop TEXT NOT NULL DEFAULT ''")
             createSyncTable(db)
         }
+        // v5: 관리자의 제출 완료 확인(보존 기산점·변경 불가 대상)
+        if (oldVersion < 5) createSubmissionTable(db)
+    }
+
+    private fun createSubmissionTable(db: SQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE submission (id INTEGER PRIMARY KEY AUTOINCREMENT, confirmed_at INTEGER, year INTEGER, " +
+                "trip_ids TEXT, expense_ids TEXT, pdf_name TEXT, pdf_sha TEXT, years INTEGER, statutory_end TEXT)",
+        )
     }
 
     private fun createSyncTable(db: SQLiteDatabase) {
@@ -85,6 +103,7 @@ class ChagokDb(context: Context) : SQLiteOpenHelper(context, "chagok.db", null, 
 
     fun deletePlace(id: Long) {
         writableDatabase.delete("place", "id=?", arrayOf(id.toString()))
+        revision.incrementAndGet()
     }
 
     // ---- trip ----
@@ -111,6 +130,30 @@ class ChagokDb(context: Context) : SQLiteOpenHelper(context, "chagok.db", null, 
         put("logbook_user", t.logbookUser); put("logbook_department", t.logbookDepartment)
     })
 
+    /**
+     * 미제출 운행 한 건의 원문을 파기한다: 운행 행 삭제, 원장의 그 운행 줄 payload 를 [Integrity.PURGED] 로 치환(hash 는 그대로),
+     * [del] 줄 덧붙이기를 한 트랜잭션으로 한다. 이어서 WAL·빈 페이지에 남은 내용을 정리한다.
+     * 저장소 암호화가 바뀌어도 이 호출의 의미(원문 제거 + 삭제 줄)는 유지한다.
+     */
+    fun purgeTrip(id: Long, del: Integrity.Entry) {
+        val w = writableDatabase
+        w.beginTransaction()
+        try {
+            w.delete("trip", "id=?", arrayOf(id.toString()))
+            w.execSQL(
+                "UPDATE ledger SET payload=? WHERE ref=? AND kind IN (?, ?)",
+                arrayOf(Integrity.PURGED + id, id, Integrity.Kind.TRIP.name, Integrity.Kind.TRIP_FIX.name),
+            )
+            appendLedger(del)
+            w.setTransactionSuccessful()
+        } finally {
+            w.endTransaction()
+        }
+        runCatching { w.rawQuery("PRAGMA wal_checkpoint(TRUNCATE)", null).use { it.moveToFirst() } }
+        runCatching { w.execSQL("VACUUM") }
+        revision.incrementAndGet()
+    }
+
     // ---- expense ----
     fun expenses(): List<Expense> = readableDatabase.rawQuery("SELECT * FROM expense ORDER BY time DESC", null).use { c ->
         c.map {
@@ -133,6 +176,7 @@ class ChagokDb(context: Context) : SQLiteOpenHelper(context, "chagok.db", null, 
 
     fun deleteExpense(id: Long) {
         writableDatabase.delete("expense", "id=?", arrayOf(id.toString()))
+        revision.incrementAndGet()
     }
 
     // ---- ledger (append-only) ----
@@ -151,11 +195,13 @@ class ChagokDb(context: Context) : SQLiteOpenHelper(context, "chagok.db", null, 
             put("seq", e.seq); put("time", e.time); put("kind", e.kind.name); put("ref", e.ref)
             put("payload", e.payload); put("prev_hash", e.prevHash); put("hash", e.hash)
         })
+        revision.incrementAndGet()
     }
 
     /** 시연용 '기록 위조해 보기' 전용: 체인 한 줄의 내용을 몰래 바꾼다 */
     fun forgeLedgerPayload(seq: Long, payload: String) {
         writableDatabase.update("ledger", ContentValues().apply { put("payload", payload) }, "seq=?", arrayOf(seq.toString()))
+        revision.incrementAndGet()
     }
 
     fun anchors(): List<Integrity.DailyAnchor> = readableDatabase.rawQuery("SELECT * FROM anchor ORDER BY day", null).use { c ->
@@ -172,6 +218,7 @@ class ChagokDb(context: Context) : SQLiteOpenHelper(context, "chagok.db", null, 
             put("day", a.day); put("seq", a.seq); put("hash", a.hash); put("count", a.count)
             put("stamped_at", a.stampedAt); put("receipt", a.receipt)
         }, SQLiteDatabase.CONFLICT_REPLACE)
+        revision.incrementAndGet()
     }
 
     // ---- sync_item (외부 연동 내역 보관함) ----
@@ -195,12 +242,51 @@ class ChagokDb(context: Context) : SQLiteOpenHelper(context, "chagok.db", null, 
             put("external_id", i.externalId); put("time", i.time); put("category", i.category.name); put("amount", i.amountWon)
             put("shop", i.shop); if (i.odoKm == null) putNull("odo") else put("odo", i.odoKm); put("memo", i.memo); put("state", i.state)
         }, SQLiteDatabase.CONFLICT_IGNORE)
+        if (id != -1L) revision.incrementAndGet()
         return id != -1L
     }
 
     fun setSyncState(id: Long, state: String) {
         writableDatabase.update("sync_item", ContentValues().apply { put("state", state) }, "id=?", arrayOf(id.toString()))
+        revision.incrementAndGet()
     }
+
+    // ---- submission (제출 완료 확인) ----
+    fun submissions(): List<Retention.Submission> =
+        readableDatabase.rawQuery("SELECT * FROM submission ORDER BY confirmed_at DESC, id DESC", null).use { c ->
+            c.map {
+                Retention.Submission(
+                    id = c.long("id"), confirmedAt = c.long("confirmed_at"), year = c.int("year"),
+                    tripIds = ids(c.str("trip_ids")), expenseIds = ids(c.str("expense_ids")),
+                    pdfName = c.str("pdf_name"), pdfSha256 = c.str("pdf_sha"),
+                    retentionYears = c.int("years"), statutoryEnd = c.str("statutory_end"),
+                )
+            }
+        }
+
+    fun addSubmission(s: Retention.Submission): Long {
+        val id = writableDatabase.insertOrThrow("submission", null, ContentValues().apply {
+            put("confirmed_at", s.confirmedAt); put("year", s.year)
+            put("trip_ids", s.tripIds.joinToString(",")); put("expense_ids", s.expenseIds.joinToString(","))
+            put("pdf_name", s.pdfName); put("pdf_sha", s.pdfSha256)
+            put("years", s.retentionYears); put("statutory_end", s.statutoryEnd)
+        })
+        revision.incrementAndGet()
+        return id
+    }
+
+    fun setStatutoryEnd(id: Long, day: String) {
+        writableDatabase.update("submission", ContentValues().apply { put("statutory_end", day) }, "id=?", arrayOf(id.toString()))
+        revision.incrementAndGet()
+    }
+
+    /** 보존기간을 늘려도 이미 확인한 제출의 보존이 줄지 않게 각 제출의 연수는 올리기만 한다 */
+    fun raiseRetention(years: Int) {
+        writableDatabase.execSQL("UPDATE submission SET years=? WHERE years<?", arrayOf(years, years))
+        revision.incrementAndGet()
+    }
+
+    private fun ids(s: String): List<Long> = s.split(',').mapNotNull { it.toLongOrNull() }
 
     // ---- setting ----
     fun setting(key: String, default: String = ""): String =
@@ -209,13 +295,15 @@ class ChagokDb(context: Context) : SQLiteOpenHelper(context, "chagok.db", null, 
         }
 
     fun setSetting(key: String, value: String) {
+        if (setting(key) == value) return
         writableDatabase.insertWithOnConflict(
             "setting", null, ContentValues().apply { put("k", key); put("v", value) }, SQLiteDatabase.CONFLICT_REPLACE,
         )
+        revision.incrementAndGet()
     }
 
     // ---- driver ----
-    // 운전자는 몇 명뿐이라 표를 따로 두지 않고 설정에 한 줄씩 담는다: id \t 이름 \t 부서 \t 시트 위치
+    // 운전자는 몇 명뿐이라 표를 따로 두지 않고 설정에 한 줄씩 담는다: id \t 이름 \t 부서 \t 시트 위치 \t 동의 시각
     fun drivers(): List<Driver> = decodeDrivers(setting(KEY_DRIVERS))
 
     fun saveDrivers(list: List<Driver>) = setSetting(KEY_DRIVERS, encodeDrivers(list))
@@ -223,28 +311,31 @@ class ChagokDb(context: Context) : SQLiteOpenHelper(context, "chagok.db", null, 
     fun clearAll() {
         writableDatabase.apply {
             delete("place", null, null); delete("trip", null, null); delete("expense", null, null); delete("setting", null, null)
-            delete("ledger", null, null); delete("anchor", null, null); delete("sync_item", null, null)
+            delete("ledger", null, null); delete("anchor", null, null); delete("sync_item", null, null); delete("submission", null, null)
         }
+        revision.incrementAndGet()
     }
 
     private fun save(table: String, id: Long, v: ContentValues): Long {
         val db = writableDatabase
-        return if (id == 0L) db.insert(table, null, v) else {
+        val result = if (id == 0L) db.insertOrThrow(table, null, v) else {
             db.update(table, v, "id=?", arrayOf(id.toString())); id
         }
+        revision.incrementAndGet()
+        return result
     }
 }
 
 private const val KEY_DRIVERS = "drivers"
 
 internal fun encodeDrivers(list: List<Driver>): String = list.joinToString("\n") { d ->
-    listOf(d.id, d.name, d.department, d.seatPosition?.toString().orEmpty())
+    listOf(d.id, d.name, d.department, d.seatPosition?.toString().orEmpty(), d.consentAt.toString())
         .joinToString("\t") { it.replace('\t', ' ').replace('\n', ' ') }
 }
 
 internal fun decodeDrivers(s: String): List<Driver> = s.lines().filter { it.isNotBlank() }.mapNotNull { line ->
     val f = line.split('\t')
-    if (f.size < 3) null else Driver(f[0], f[1], f[2], f.getOrNull(3)?.toIntOrNull())
+    if (f.size < 3) null else Driver(f[0], f[1], f[2], f.getOrNull(3)?.toIntOrNull(), f.getOrNull(4)?.toLongOrNull() ?: 0L)
 }
 
 private inline fun <T> Cursor.map(f: (Cursor) -> T): List<T> {

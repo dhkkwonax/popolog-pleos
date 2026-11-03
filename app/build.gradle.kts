@@ -8,7 +8,7 @@ android {
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "ai.chagok.app"
+        applicationId = providers.gradleProperty("previewApplicationId").getOrElse("ai.chagok.app")
         minSdk = 29
         targetSdk = 34
         versionCode = 1
@@ -53,8 +53,10 @@ dependencies {
     "realImplementation"("ai.pleos.playground:SpeechToText:3.3.1")
     "realImplementation"("ai.pleos.playground:TextToSpeech:3.3.1")
     "realImplementation"("ai.pleos.playground:NaviHelper:3.0.5")
-    // 신고용 PDF 의 검증 QR (코어만, 안드로이드 의존 없음)
-    implementation("com.google.zxing:core:3.5.3")
+    // PDF 문서 타임스탬프. 앱의 BouncyCastle 1.79를 사용한다.
+    implementation("com.tom-roush:pdfbox-android:2.0.27.0") {
+        exclude(group = "org.bouncycastle")
+    }
     // 일일 앵커의 RFC 3161 타임스탬프 요청·토큰 서명 검증
     implementation("org.bouncycastle:bcpkix-jdk18on:1.79")
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit:2.0.0")

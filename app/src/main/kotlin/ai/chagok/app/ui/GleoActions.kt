@@ -67,6 +67,7 @@ private fun MainActivity.gleoAddExpense(p: GleoParams.AddExpense) {
 
 /** 기간별 조회·내보내기 */
 private fun MainActivity.gleoQuery(q: GleoParams.Query) {
+    if (!requireAdmin()) return
     when (q.action) {
         GleoParams.QueryAction.EXPORT_PDF -> {
             select(MainActivity.Tab.TAX)

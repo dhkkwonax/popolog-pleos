@@ -17,7 +17,9 @@ import java.util.Locale
 class TaxScreen(private val a: MainActivity) {
     private val c = a.controller
 
-    fun render(): View = a.vbox {
+    fun render(): View {
+        if (!c.canManage) return a.adminGate()
+        return a.vbox {
         val now = c.gateway.now()
         val cal = Calendar.getInstance(TaxReport.KST).apply { timeInMillis = now }
         val year = cal.get(Calendar.YEAR)
@@ -44,7 +46,9 @@ class TaxScreen(private val a: MainActivity) {
             })
         }
 
+        add(a.button("PDF 파일 검사") { a.pdfFiles.selectFile() }, top = 10)
         add(integrityCard(), top = 16)
+        add(a.submissionCard(year), top = 16)
 
         add(a.pair(ratioCard(s), deductCard(s, cal), secondWeight = 1.3f), top = 16)
         add(a.pair(costCard(s), checklist(s), secondWeight = 1.3f), top = 12)
@@ -56,6 +60,8 @@ class TaxScreen(private val a: MainActivity) {
             ),
             top = 16,
         )
+    }
+
     }
 
     private fun ratioCard(s: TaxSummary): View = a.card {
@@ -188,10 +194,14 @@ class TaxScreen(private val a: MainActivity) {
         val status = a.vbox {
             add(title)
             if (r.ok) {
-                add(a.hbox(Gravity.BOTTOM) {
+                if (r.purgedSeqs.isEmpty()) add(a.hbox(Gravity.BOTTOM) {
                     add(a.text("정상", 30f, bold = true), WRAP, WRAP, end = 10)
                     add(a.text("체인 ${String.format(Locale.US, "%,d", r.count)}건 검증", 17f, C.SUB, tabular = true), WRAP, WRAP)
                 }, top = 8)
+                else {
+                    add(a.text("원문 파기로 검증 불가", 24f, C.AMBER, bold = true), top = 8)
+                    add(a.text("삭제한 운행 ${r.purgedSeqs.size}줄은 내용을 다시 계산할 수 없어요 · 변조 판정은 아닙니다", 14f, C.SUB), top = 4)
+                }
             } else {
                 add(a.text("${r.firstBadSeq}번째 기록부터 불일치", 26f, C.RED, bold = true, tabular = true), top = 8)
             }
@@ -225,7 +235,7 @@ class TaxScreen(private val a: MainActivity) {
         val actions = listOf(
             a.button("다시 검증") {
                 c.reload(); a.render()
-                a.toast(if (c.integrity.ok) "체인 ${c.integrity.count}건을 다시 계산했어요 · 정상" else "${c.integrity.firstBadSeq}번째 기록부터 불일치")
+                a.toast(if (c.integrity.ok) "체인 ${c.integrity.count}건을 다시 계산했어요 · " + (if (c.integrity.purgedSeqs.isEmpty()) "정상" else "원문 파기로 검증 불가 ${c.integrity.purgedSeqs.size}줄") else "${c.integrity.firstBadSeq}번째 기록부터 불일치")
             },
             a.button("오늘 기록 앵커") { anchorToday(c, a) },
         )
@@ -257,6 +267,7 @@ class TaxScreen(private val a: MainActivity) {
 
     /** 신고용 운행기록부 PDF. 체인이 어긋나 있으면 만들지 않는다 (검증 코드가 거짓이 되므로) */
     private fun exportPdf(year: Int, s: TaxSummary) {
+        if (!a.requireAdmin()) return
         val r = c.integrity
         if (!r.ok) {
             a.dialog(
@@ -275,20 +286,12 @@ class TaxScreen(private val a: MainActivity) {
             ),
             summary = s, vehicle = c.gateway.info,
             company = c.db.setting(AppController.KEY_COMPANY), bizNumber = c.db.setting(AppController.KEY_BIZNO),
-            finalHash = r.lastHash, chainCount = r.count, lastAnchor = c.anchors.maxByOrNull { it.day }, taxpayer = c.taxpayer,
+            taxpayer = c.taxpayer,
         )
         val bytes = LogbookPdf.build(input)
         val fileName = "운행기록부_${year}_${stamp()}.pdf"
         val ledger = Integrity.exportJson(c.db.ledger(), c.anchors)
-        a.showPdfPreview(
-            "운행기록부 PDF 미리보기", bytes, "${input.rows.size}회 운행 · 검증 코드 ${Integrity.verifyCode(r.lastHash)}",
-            extra = listOf(
-                "검증 페이지" to { a.showVerifyPage(LogbookPdf.qrText(input), ledger) },
-                "검증 파일 저장" to { a.saveFile("검증파일_${year}_${stamp()}.json", ledger.toByteArray(Charsets.UTF_8), "application/json") },
-            ),
-        ) {
-            a.saveFile(fileName, bytes, "application/pdf")
-        }
+        a.pdfFiles.prepare(bytes, fileName, "${input.rows.size}회 운행", ledger)
     }
 
     /** 음성(Gleo) 요청으로 올해 운행기록부 PDF 미리보기를 연다 */
@@ -303,6 +306,7 @@ class TaxScreen(private val a: MainActivity) {
     }
 
     private fun exportLogbook(year: Int) {
+        if (!a.requireAdmin()) return
         val csv = TaxReport.logbookCsv(
             year, c.trips, c.gateway.info,
             companyName = c.db.setting(AppController.KEY_COMPANY),
@@ -315,6 +319,7 @@ class TaxScreen(private val a: MainActivity) {
     }
 
     private fun exportExpenses(year: Int) {
+        if (!a.requireAdmin()) return
         val fmt = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.KOREAN).apply { timeZone = TaxReport.KST }
         val sb = StringBuilder("﻿일시,항목,금액(원),수량,계기판(km),입력 방식,메모\n")
         c.expenses.filter { yearOf(it.time) == year && !it.pendingAmount }.sortedBy { it.time }.forEach { e ->

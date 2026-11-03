@@ -145,6 +145,7 @@ class DemoOverlay(private val a: MainActivity) {
         // 위변조 검증 시연: DB 의 지난 운행 하나를 몰래 고쳤다가 되돌린다. 결과는 세무 리포트의 '기록 무결성' 카드에서 본다
         val forged = c.forgedSeq != null
         put(tool(if (forged) Ic.CHECK else Ic.ALERT, if (forged) "위조 되돌리기" else "기록 위조해 보기", !busy) {
+            if (!a.requireAdmin()) return@tool
             if (forged) c.undoForge() else c.forgeRecord()
             a.select(MainActivity.Tab.TAX)
         })
@@ -153,6 +154,7 @@ class DemoOverlay(private val a: MainActivity) {
         // 앱을 끈 채 달린 거리: 계기판만 12.4km 늘어난 채로 다시 시동해 보정 운행이 생기는 것을 보여 준다
         put(tool(Ic.SWAP, "앱 끈 채 운행 (12km)", !busy) { c.demoOfflineDrive(12.4) })
         put(tool(Ic.RESET, "시연 데이터 초기화", !busy) {
+            if (!a.requireAdmin()) return@tool
             a.dialog("시연 데이터를 초기화할까요?", a.text("  지금까지의 기록을 지우고 6월 출고 이후 예시 기록을 다시 만듭니다.", 16f, C.SUB), "초기화") {
                 c.resetDemo()
             }

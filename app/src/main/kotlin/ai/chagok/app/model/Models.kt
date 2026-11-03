@@ -119,6 +119,8 @@ data class Driver(
     val department: String,
     /** 이 사람이 맞춰 둔 운전석 앞뒤 위치 (Vehicle SDK Seat 단위). 등록 전이면 null */
     val seatPosition: Int? = null,
+    /** 위치 기록·운전자 추정에 본인이 명시적으로 동의한 시각. 0 이면 동의 전 */
+    val consentAt: Long = 0,
 )
 
 /** 시동 때 운전자를 알아낸 방법 */

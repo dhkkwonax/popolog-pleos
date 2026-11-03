@@ -70,12 +70,18 @@ object Integrity {
 
     private fun km(v: Double) = String.format(Locale.US, "%.1f", v)
 
-    /** 기록 종류. FIX 는 정정 기록, DEL 은 삭제 기록 (원래 줄은 그대로 남는다) */
+    /**
+     * 기록 종류. FIX 는 정정 기록, DEL 은 삭제 기록 (원래 줄은 그대로 남는다).
+     * 운행을 삭제하면 그 운행의 이전 줄 payload 는 [PURGED] 표시로 바뀌고 [TRIP_DEL] 줄이 덧붙는다.
+     */
     enum class Kind(val label: String) {
-        TRIP("운행"), TRIP_FIX("운행 정정"), EXPENSE("비용"), EXPENSE_FIX("비용 정정"), EXPENSE_DEL("비용 삭제");
+        TRIP("운행"), TRIP_FIX("운행 정정"), EXPENSE("비용"), EXPENSE_FIX("비용 정정"), EXPENSE_DEL("비용 삭제"), TRIP_DEL("운행 삭제");
 
-        val isTrip get() = this == TRIP || this == TRIP_FIX
+        val isTrip get() = this == TRIP || this == TRIP_FIX || this == TRIP_DEL
     }
+
+    /** 원문을 파기한 줄의 payload 머리. 해시는 다시 쓰지 않으므로 이 줄의 내용은 검증할 수 없다 */
+    const val PURGED = "purged|"
 
     /** 체인의 한 줄. [seq] 는 1부터 */
     data class Entry(
@@ -118,6 +124,8 @@ object Integrity {
         val badRef: Long? = null,
         val lastHash: String = GENESIS,
         val anchorsChecked: Int = 0,
+        /** 원문을 파기해 내용을 다시 계산할 수 없는 줄 번호. 변조가 아니며 이 구간은 `원문 파기로 검증 불가` */
+        val purgedSeqs: List<Long> = emptyList(),
     )
 
     /**
@@ -127,11 +135,15 @@ object Integrity {
     fun verify(chain: List<Entry>, anchors: List<DailyAnchor>, trips: List<Trip>, expenses: List<Expense>): Report {
         var prev = GENESIS
         val recomputed = HashMap<Long, String>()
+        val purged = ArrayList<Long>()
         for ((i, e) in chain.withIndex()) {
             val expectSeq = i + 1L
-            val h = hash(prev, e.kind, e.payload)
+            val isPurged = e.payload.startsWith(PURGED)
+            // 파기된 줄은 원문이 없어 hash 를 다시 계산하지 못한다. 저장된 hash 를 이어 받아 앞뒤 연결만 본다
+            val h = if (isPurged) e.hash else hash(prev, e.kind, e.payload)
             if (e.seq != expectSeq) return bad(chain, e, "줄 번호가 빠지거나 바뀜", anchors = anchors.size)
             if (e.prevHash != prev || e.hash != h) return bad(chain, e, "기록 내용이 체인과 다름", anchors = anchors.size)
+            if (isPurged) purged += e.seq
             recomputed[e.seq] = h
             prev = h
         }
@@ -152,7 +164,7 @@ object Integrity {
             val e = latest[EXPENSE_KEY to x.id]
             if (e == null || !matches(e.payload, x)) return bad(chain, e, "비용 표가 체인과 다름", Kind.EXPENSE, x.id, anchors.size)
         }
-        return Report(true, chain.size, lastHash = prev, anchorsChecked = anchors.size)
+        return Report(true, chain.size, lastHash = prev, anchorsChecked = anchors.size, purgedSeqs = purged)
     }
 
     /** 영수증이 있으면 그 서명까지 맞아야 한다. 응답 대기("")·이관([Rfc3161.BACKFILL]) 앵커는 hash 만 대조한다 */
@@ -173,7 +185,7 @@ object Integrity {
         val out = HashMap<Pair<String, Long>, Entry>()
         for (e in chain) {
             val key = (if (e.kind.isTrip) TRIP_KEY else EXPENSE_KEY) to e.ref
-            if (e.kind == Kind.EXPENSE_DEL) out.remove(key) else out[key] = e
+            if (e.kind == Kind.EXPENSE_DEL || e.kind == Kind.TRIP_DEL) out.remove(key) else out[key] = e
         }
         return out
     }

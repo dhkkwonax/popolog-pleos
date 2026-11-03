@@ -44,6 +44,7 @@ class Flows(private val c: AppController) {
 
     /** 설정의 '음성 점검': 말하기와 듣기가 되는지 한 번 확인한다. 들은 말은 화면에 그대로 보여 준다 */
     fun voiceCheck(onResult: (String) -> Unit) {
+        if (c.dataSuspended) return
         c.assistant.ask(
             Prompt(
                 id = "voice_check", question = "음성 점검이에요. 소리가 들리면 네, 라고 말씀해 주세요.",
@@ -60,6 +61,7 @@ class Flows(private val c: AppController) {
     // ---- 도착한 곳 저장 ----
 
     fun onArrived(a: Arrival) {
+        if (c.dataSuspended) return
         val lat = a.lat ?: c.lat
         val lng = a.lng ?: c.lng
         val declined = ArrivalPolicy.decode(c.db.setting(KEY_DECLINED)) + sessionDeclined
@@ -135,6 +137,8 @@ class Flows(private val c: AppController) {
     // ---- 운행 목적 ----
 
     fun askPurpose(t: Trip) {
+        if (!c.canEditTrip(t.id)) return
+        if (c.dataSuspended) return
         val route = when {
             t.fromName.isNotBlank() && t.toName.isNotBlank() -> "${t.fromName}에서 ${t.toName}까지"
             t.fromName.isNotBlank() -> "${t.fromName}에서 출발했어요"
@@ -159,6 +163,7 @@ class Flows(private val c: AppController) {
     // ---- 주유·충전 금액 ----
 
     fun askAmount(e: Expense) {
+        if (c.dataSuspended) return
         c.assistant.ask(
             Prompt(
                 // "주유가" / "충전이" — 받침 유무로 조사를 고른다
@@ -190,6 +195,7 @@ class Flows(private val c: AppController) {
     // ---- 운전자 확인 ----
 
     fun confirmDriver(name: String, method: DriverMethod) {
+        if (c.dataSuspended) return
         if (method == DriverMethod.MANUAL) return
         c.assistant.ask(
             Prompt(
@@ -217,7 +223,7 @@ class Flows(private val c: AppController) {
 
     fun plan(): List<MaintItem> = MaintenancePlan.decode(c.db.setting(KEY_PLAN))
 
-    fun savePlan(items: List<MaintItem>) = c.db.setSetting(KEY_PLAN, MaintenancePlan.encode(items))
+    fun savePlan(items: List<MaintItem>) { if (!c.dataSuspended) c.db.setSetting(KEY_PLAN, MaintenancePlan.encode(items)) }
 
     /** 항목을 마지막으로 한 계기판 값 (정비 기록에서) */
     fun lastDoneOdo(item: String): Double? = MaintenancePlan.lastDoneOdo(item, c.expenses)
@@ -226,6 +232,7 @@ class Flows(private val c: AppController) {
 
     /** 정차 중에 주기가 된 항목을 한 번 알린다 ("정비했어요"로 입력과 이어짐) */
     fun checkMaintenance() {
+        if (c.dataSuspended) return
         if (c.isDriving || c.odoKm <= 0) return
         val d = dueItems().firstOrNull { (c.db.setting(KEY_NOTIFIED_PREFIX + it.item.name).toDoubleOrNull() ?: -1e9) < c.odoKm - RENOTIFY_KM } ?: return
         c.db.setSetting(KEY_NOTIFIED_PREFIX + d.item.name, c.odoKm.toString())
@@ -242,6 +249,7 @@ class Flows(private val c: AppController) {
 
     /** 정비 기록을 저장하면 그 항목의 알림 표시를 지운다 (다시 주기가 되면 새로 알린다) */
     fun onMaintenanceSaved(memo: String) {
+        if (c.dataSuspended) return
         for (it in plan()) {
             if (MaintenancePlan.mentions(memo, it.name)) c.db.setSetting(KEY_NOTIFIED_PREFIX + it.name, "")
         }
@@ -249,6 +257,7 @@ class Flows(private val c: AppController) {
 
     /** 시연: 교체 시기가 가장 가까운 항목의 교체 주기를 지금 막 넘기도록 짧게 줄인다 (설정의 정비 주기에서 되돌릴 수 있다) */
     fun demoMakeDue() {
+        if (c.dataSuspended) return
         val items = plan()
         // 방금 정비한 항목은 피해, 마지막 정비 이후 가장 많이 달린 항목을 고른다
         val first = items.maxByOrNull { c.odoKm - (lastDoneOdo(it.name) ?: 0.0) } ?: items.first()
@@ -270,6 +279,7 @@ class Flows(private val c: AppController) {
     data class SyncResult(val added: Int, val duplicates: Int)
 
     fun sync(source: SyncSource): SyncResult {
+        if (c.dataSuspended) return SyncResult(0, 0)
         val raws = source.fetchSince(0L)
         var added = 0
         for (r in raws) if (c.db.addSyncItem(ExpenseSync.toItem(r))) added++
@@ -284,12 +294,14 @@ class Flows(private val c: AppController) {
 
     /** 승인: 장부에 넣는다. [merge] 면 이미 입력한 같은 기록을 두고 연동 내역만 처리 완료로 한다 */
     fun approve(item: SyncItem, merge: Boolean) {
+        if (c.dataSuspended) return
         if (!merge) c.saveExpense(ExpenseSync.toExpense(item, c.odoKm.takeIf { it > 0 }))
         c.db.setSyncState(item.id, SyncItem.APPROVED)
         c.notifyUi()
     }
 
     fun reject(item: SyncItem) {
+        if (c.dataSuspended) return
         c.db.setSyncState(item.id, SyncItem.REJECTED)
         c.notifyUi()
     }

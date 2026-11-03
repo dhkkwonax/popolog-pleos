@@ -25,12 +25,20 @@ class HomeScreen(private val a: MainActivity) {
         add(vehicleCard())
         c.driverGreeting?.let { add(greeting(it), top = 14) }
         // 앱이 먼저 묻는 질문 (같은 기록을 묻는 아래 카드는 숨긴다)
-        val asking = c.assistant.current
+        val asking = c.assistant.current?.takeIf { it.refType != "trip" || c.canEditTrip(it.refId) }
         asking?.let { add(a.assistantCard(it), top = 14) }
         add(statusCard(), top = 14)
+        a.expiryBanner()?.let { banner -> add(a.card(C.SURFACE, stroke = C.AMBER) { add(banner) }, top = 14) }
         c.flows.dueItems().firstOrNull()?.let { add(maintenanceCard(it), top = 14) }
         c.pendingExpense()?.takeUnless { asking?.refType == "expense" && asking.refId == it.id }?.let { add(expensePrompt(it), top = 14) }
         c.pendingTrip()?.takeUnless { asking?.refType == "trip" && asking.refId == it.id }?.let { add(tripPrompt(it), top = 14) }
+        c.currentTripId?.let { id -> c.trips.firstOrNull { it.id == id && c.canEditTrip(id) } }?.let { trip ->
+            add(a.card {
+                add(a.text("이번 운행 이용자", 18f, bold = true))
+                add(a.text(if (trip.logbookUser.isBlank()) "아직 확인하지 않았어요" else "${trip.logbookDepartment} · ${trip.logbookUser}", 16f, C.SUB), top = 8)
+                add(a.button("이번 운행 이용자 확인", BtnStyle.SECONDARY) { a.chooseLogbookUser(trip) }, WRAP, WRAP, top = 12)
+            }, top = 14)
+        }
         add(costCard(), top = 14)
         add(recent(), top = 14)
     }
@@ -94,8 +102,8 @@ class HomeScreen(private val a: MainActivity) {
 
     /** 발견 사항 + 확인할 항목을 한 장으로. 0건이면 초록 체크, 있으면 노란색으로 그 항목 바로 가기 */
     private fun statusCard(): View = a.card(padDp = 20) {
-        val pendingTrip = c.trips.firstOrNull { it.purpose == TripPurpose.UNCLASSIFIED }
-        val pendingExpense = c.expenses.firstOrNull { it.pendingAmount }
+        val pendingTrip = c.trips.firstOrNull { it.purpose == TripPurpose.UNCLASSIFIED && c.canEditTrip(it.id) }
+        val pendingExpense = c.expenses.firstOrNull { it.pendingAmount && c.canEditExpense(it.id) }
         val nTrips = c.trips.count { it.purpose == TripPurpose.UNCLASSIFIED }
         val nAmounts = c.expenses.count { it.pendingAmount }
         if (nTrips + nAmounts == 0) {
@@ -261,12 +269,12 @@ class HomeScreen(private val a: MainActivity) {
             }, WRAP, WRAP)
         })
         data class Row(val time: Long, val icon: Ic, val title: String, val sub: String, val right: String, val color: Int)
-        val rows = c.trips.take(RECENT_ROWS).map {
+        val rows = c.trips.filter { c.canManage || it.id == c.currentTripId }.take(RECENT_ROWS).map {
             Row(
                 it.startTime, Ic.CAR, "${it.fromName.ifEmpty { "-" }} → ${it.toName.ifEmpty { "미등록 장소" }}",
                 "${it.purpose.label} · ${it.classifiedBy.label}", AppController.fmtKm(it.distanceKm), purposeColor(it.purpose),
             )
-        } + c.expenses.take(RECENT_ROWS).map {
+        } + c.expenses.filter { c.canManage }.take(RECENT_ROWS).map {
             Row(
                 it.time, it.category.ic, it.category.label + if (it.memo.isNotEmpty()) " · ${it.memo}" else "",
                 it.source.label, if (it.pendingAmount) "금액 입력 필요" else AppController.won(it.amountWon),

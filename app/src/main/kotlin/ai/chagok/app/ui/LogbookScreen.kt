@@ -14,7 +14,9 @@ import java.util.Locale
 class LogbookScreen(private val a: MainActivity) {
     private val c = a.controller
 
-    fun render(): View = a.vbox {
+    fun render(): View {
+        if (!c.canManage) return a.adminGate()
+        return a.vbox {
         val range = MonthRange.of(c.gateway.now(), a.monthOffset)
         val list = c.trips.filter { range.contains(it.startTime) }
         add(a.monthHeader(range, a.button("세무 리포트 →", BtnStyle.SECONDARY) { a.select(MainActivity.Tab.TAX) }))
@@ -48,6 +50,8 @@ class LogbookScreen(private val a: MainActivity) {
         }, top = 16)
     }
 
+    }
+
     private fun stat(label: String, value: String, sub: String, color: Int = C.TEXT): View = a.vbox {
         add(a.text(label, 15f, C.SUB, lines = 1))
         add(a.text(value, 24f, color, bold = true, lines = 1, tabular = true), top = 8)
@@ -71,6 +75,9 @@ class LogbookScreen(private val a: MainActivity) {
                 setOnClickListener { a.chooseLogbookUser(t) }
             }, top = 4)
             add(a.text("${AppController.fmt1(t.startOdoKm)} → ${AppController.fmt1(t.endOdoKm)} km" + (if (t.classifiedBy != ClassifiedBy.NONE) " · ${t.classifiedBy.label} 분류" else ""), 14f, C.DIM), top = 4)
+            // 제출 완료로 확인된 운행은 변경·삭제 불가, 미제출 운행만 관리자가 한 건씩 삭제할 수 있다
+            if (c.isTripLocked(t.id)) add(a.text("제출 완료 확인됨 · 변경·삭제 불가", 14f, C.DIM), top = 4)
+            else add(a.text("이 운행 삭제", 15f, C.RED).apply { minHeight = a.touchHeight(48); gravity = Gravity.CENTER_VERTICAL; setOnClickListener { a.confirmTripDeletion(t) } }, top = 4)
         }, 0, WRAP, 1f)
         add(a.text(AppController.fmtKm(t.distanceKm), 18f, bold = true, tabular = true).apply { gravity = Gravity.END }, a.dp(if (narrow) 90 else 120), WRAP, end = 14)
         add(
