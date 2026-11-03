@@ -464,6 +464,7 @@ class RecordBackup(private val context: Context, private val c: AppController, p
                 c.db.clearAll()
                 c.db.close()
                 require(context.deleteDatabase("chagok.db")) { "데이터베이스 파일 삭제 실패" }
+                DbCrypto.forget(context)
                 val dirs = listOfNotNull(context.filesDir, context.cacheDir, context.codeCacheDir, context.getExternalFilesDir(null), context.externalCacheDir)
                 dirs.forEach { dir -> dir.listFiles()?.forEach { require(it.deleteRecursively()) { "앱 파일 삭제 실패" } } }
             }.onFailure { failures += "앱 내부 데이터 정리 실패" }

@@ -14,11 +14,11 @@ import ai.chagok.app.model.TripPurpose
 import android.content.ContentValues
 import android.content.Context
 import android.database.Cursor
-import android.database.sqlite.SQLiteDatabase
-import android.database.sqlite.SQLiteOpenHelper
+import net.zetetic.database.sqlcipher.SQLiteDatabase
+import net.zetetic.database.sqlcipher.SQLiteOpenHelper
 
-/** 프레임워크 SQLite만 쓰는 저장소 (외부 라이브러리 없이 빌드하기 위해 Room 대신 사용) */
-class ChagokDb(context: Context) : SQLiteOpenHelper(context, "chagok.db", null, 5) {
+/** SQLCipher로 전체 암호화한 저장소 (키는 [DbCrypto]가 Keystore로 보호) */
+class ChagokDb(context: Context) : SQLiteOpenHelper(context, "chagok.db", DbCrypto.prepare(context), null, 5, 0, null, null, false) {
 
     val revision = java.util.concurrent.atomic.AtomicLong()
 

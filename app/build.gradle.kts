@@ -59,5 +59,8 @@ dependencies {
     }
     // 일일 앵커의 RFC 3161 타임스탬프 요청·토큰 서명 검증
     implementation("org.bouncycastle:bcpkix-jdk18on:1.79")
+    // 앱 DB 전체 암호화 (SQLCipher)
+    implementation("net.zetetic:sqlcipher-android:4.5.6@aar")
+    implementation("androidx.sqlite:sqlite:2.2.0")
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit:2.0.0")
 }
