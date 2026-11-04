@@ -89,7 +89,7 @@ object DbCrypto {
         val tmp = File(plain.parentFile, "$DB_NAME.enc.tmp")
         listOf(tmp, File(tmp.path + "-journal"), File(tmp.path + "-wal"), File(tmp.path + "-shm")).forEach { it.delete() }
         val keyLiteral = String(pass, Charsets.US_ASCII)
-        val src = net.zetetic.database.sqlcipher.SQLiteDatabase.openDatabase(plain.path, ByteArray(0), null, net.zetetic.database.sqlcipher.SQLiteDatabase.OPEN_READWRITE, null, null)
+        val src = net.zetetic.database.sqlcipher.SQLiteDatabase.openDatabase(plain.path, ByteArray(0), null, net.zetetic.database.sqlcipher.SQLiteDatabase.OPEN_READWRITE or net.zetetic.database.sqlcipher.SQLiteDatabase.CREATE_IF_NECESSARY, null, null)
         try {
             val version = src.version
             src.execSQL("ATTACH DATABASE '${tmp.path.replace("'", "''")}' AS encrypted KEY \"$keyLiteral\"")
