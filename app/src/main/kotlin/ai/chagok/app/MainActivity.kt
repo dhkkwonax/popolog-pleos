@@ -192,6 +192,11 @@ class MainActivity : Activity() {
         if (requestCode != REQ_BACKUP_FOLDER || resultCode != RESULT_OK) return
         val uri = data?.data ?: return
         try {
+            if (folderPurpose == "offsite") {
+                backup.saveOutsideVehicle(uri) { toast(it); if (backup.offsiteVerified) showSaleDeletion() }
+                render()
+                return
+            }
             require(uri.authority == "com.android.externalstorage.documents") { "기기 내 폴더를 선택하세요" }
             contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
             backup.selectFolder(uri, folderPurpose == "sale", folderPurpose != "restore")
@@ -242,11 +247,22 @@ class MainActivity : Activity() {
 
     private fun showSaleDeletion() {
         if (backup.busy || controller.isDriving) { toast("정차 후 작업이 끝나면 다시 시도하세요"); return }
+        if (!backup.offsiteVerified) {
+            val need = vbox {
+                setPadding(dp(24), dp(8), dp(24), 0)
+                add(text("삭제 전에 보존 중인 제출 PDF·검증 파일과 운행·비용 기록 사본을 USB 등 차량 밖 저장소에 저장해야 합니다.", 16f))
+                add(text("차량 내부 저장소는 사용할 수 없습니다. 저장한 파일을 다시 읽어 확인한 뒤에만 삭제할 수 있고, 저장 뒤 기록이 바뀌면 다시 저장해야 합니다.", 14f, C.SUB), top = 12)
+                add(text("출장명령서 등 외부 증빙은 앱에 없으므로 사업장에서 별도로 보관해야 합니다.", 14f, C.SUB), top = 12)
+            }
+            dialog("차량 밖 저장 먼저", need, "저장소 선택") { chooseBackupFolder("offsite") }
+            return
+        }
         val scope = vbox {
             setPadding(dp(24), dp(8), dp(24), 0)
             add(text(controller.gateway.info.title, 17f, bold = true))
             add(text("운행·비용·좌표·검증 이력과 백업, 앱이 만든 내보내기 파일을 모두 삭제합니다.", 16f), top = 12)
-            add(text("보존기간이 남은 기록도 삭제됩니다. 필요한 세무 증빙은 먼저 별도로 보관해 주세요.", 15f, C.SUB), top = 12)
+            add(text("보존기간이 남은 기록도 삭제됩니다. 차량 밖 저장소에 저장한 사본은 지워지지 않습니다.", 15f, C.SUB), top = 12)
+            add(text("출장명령서 등 외부 증빙은 앱에 없으므로 사업장에서 별도로 보관해야 합니다.", 15f, C.SUB), top = 12)
             add(text("삭제한 기록은 복구할 수 없습니다. 외부로 공유·복사한 파일은 직접 관리해야 합니다.", 14f, C.SUB), top = 12)
         }
         dialog("차량 기록을 모두 지울까요?", scope, "계속", destructive = false) {

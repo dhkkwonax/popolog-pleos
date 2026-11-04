@@ -375,11 +375,80 @@ class RecordBackup(private val context: Context, private val c: AppController, p
         }
     }
 
+
+    // ---- 매각 전 차량 밖 저장 ----
+
+    /** 차량 밖 저장 확인 시점의 기록 상태 표식. 이후 기록이 바뀌면 달라져 다시 저장해야 한다 */
+    private fun stateToken(): String {
+        val l = c.db.ledger()
+        return "${l.size}|${l.lastOrNull()?.hash}|${c.db.trips().size}|${c.db.expenses().size}|${c.db.anchors().size}|${files().length()}"
+    }
+
+    val offsiteVerified: Boolean get() = prefs.getString("offsite_token", null).let { it != null && it == stateToken() }
+    val offsiteAt: Long get() = prefs.getLong("offsite_at", 0)
+
+    /** 선택한 폴더가 USB·SD 카드 같은 분리 가능한 저장소인가. 기기 내부 저장소는 허용하지 않는다 */
+    private fun requireRemovable(tree: Uri) {
+        require(tree.authority == "com.android.externalstorage.documents") { "USB 등 차량 밖 저장소의 폴더를 선택하세요" }
+        val volume = Docs.getTreeDocumentId(tree).substringBefore(':')
+        require(volume.isNotEmpty() && !volume.equals("primary", true) && !volume.equals("home", true)) { "차량 내부 저장소는 사용할 수 없습니다. USB 등 차량 밖 저장소를 선택하세요" }
+        val sm = context.getSystemService(Context.STORAGE_SERVICE) as android.os.storage.StorageManager
+        val v = sm.storageVolumes.firstOrNull { it.uuid.equals(volume, true) }
+        require(v != null && v.isRemovable) { "분리할 수 있는 저장소(USB·SD 카드)인지 확인하지 못했습니다" }
+    }
+
+    /**
+     * 보존 중인 내보내기 파일(제출 PDF·CSV·검증 JSON)과 암호화한 운행·비용 기록 사본을 차량 밖 저장소에 저장하고,
+     * 다시 읽어 해시가 같은지 확인한다. 하나라도 어긋나면 완료로 표시하지 않아 매각 삭제가 열리지 않는다
+     */
+    fun saveOutsideVehicle(tree: Uri, onDone: (String) -> Unit) {
+        if (closed || busy || operationRunning || c.dataSuspended || saleState.isNotEmpty()) { onDone("진행 중인 작업이 끝난 뒤 다시 시도하세요"); return }
+        try { requireRemovable(tree) } catch (e: Exception) { onDone(e.message ?: "저장소를 확인하지 못했습니다"); return }
+        val token = stateToken()
+        val snapshot = try { BackupCrypto.seal(RecordSnapshot.create(c.db, files(), roots()), c.admin.backupKeys) } catch (e: Exception) {
+            onDone("저장 실패: ${safeError(e)}"); return
+        }
+        val known = files()
+        busy = true; update()
+        io.execute {
+            val failures = mutableListOf<String>()
+            var saved = 0
+            var gone = 0
+            val stamp = java.text.SimpleDateFormat("yyyyMMdd-HHmmss", java.util.Locale.ROOT).format(java.util.Date())
+            fun copy(name: String, bytes: ByteArray) {
+                runCatching {
+                    val uri = create(tree, name, bytes)
+                    require(RecordSnapshot.digest(read(uri)) == RecordSnapshot.digest(bytes)) { "재읽기 불일치" }
+                    saved++
+                }.onFailure { failures += "$name: ${safeError(it)}" }
+            }
+            copy("popolog-offsite-$stamp-records.json", snapshot)
+            for (i in 0 until known.length()) {
+                val f = known.getJSONObject(i)
+                val bytes = try { read(Uri.parse(f.getString("uri"))) } catch (_: java.io.FileNotFoundException) { gone++; continue }
+                  catch (e: Exception) { failures += "${f.getString("name")}: 읽기 실패"; continue }
+                copy("popolog-offsite-$stamp-${f.getString("name")}", bytes)
+            }
+            main.post {
+                busy = false
+                val text = if (failures.isEmpty()) {
+                    // 저장하는 동안 기록이 바뀌었으면 확인으로 인정하지 않는다
+                    if (token == stateToken()) {
+                        prefs.edit().putString("offsite_token", token).putLong("offsite_at", System.currentTimeMillis()).commit()
+                        "차량 밖 저장 완료 · ${saved}개 확인${if (gone > 0) " (이미 없는 내보내기 파일 ${gone}개 제외)" else ""}"
+                    } else "저장하는 동안 기록이 바뀌었습니다. 다시 저장하세요"
+                } else "저장 미완료\n${failures.joinToString("\n")}"
+                update(text); onDone(text)
+            }
+        }
+    }
+
     fun deleteForSale() {
         if (busy || operationRunning || saleState == "done") return
         require(!c.isDriving) { "정차 후 삭제하세요" }
         // A pending deletion already carries persisted authorization across process restarts.
         if (saleState.isEmpty()) require(c.canManage && c.admin.recentlyVerified()) { "관리자 PIN을 다시 확인하세요" }
+        if (saleState.isEmpty()) require(offsiteVerified) { "먼저 USB 등 차량 밖 저장소에 보존 자료를 저장하세요" }
         // Persist before stopping any source: restart resumes this mode without starting a gateway.
         require(prefs.edit().putString("sale", "pending").commit()) { "삭제 상태 저장 실패" }
         c.pauseRecords()
