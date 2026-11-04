@@ -142,9 +142,13 @@ class SettingsScreen(private val a: MainActivity) {
             add(a.text("외부 타임스탬프 전송", 17f, bold = true), top = 18)
             add(a.text("하루 마감 시 기록 지문을, PDF 내보내기 시 PDF 지문을 기관에 보내 서명을 받습니다. 기록·PDF 원문은 보내지 않지만 기관은 접속 시각과 IP를 알 수 있습니다. 끄면 새 PDF는 증명 없이 저장됩니다.", 14f, C.DIM), top = 4)
             add(a.hbox {
-                add(a.choice("켜짐", tsaOn) { c.setTsaEnabled(true); a.render() }, WRAP, WRAP, end = 10)
-                add(a.choice("꺼짐", !tsaOn) { c.setTsaEnabled(false); a.render() }, WRAP, WRAP)
+                add(a.choice("켜짐", tsaOn) { if (a.requireAdmin()) { c.setTsaEnabled(true); a.render() } }, WRAP, WRAP, end = 10)
+                add(a.choice("꺼짐", !tsaOn) {
+                    if (!c.admin.configured) a.toast("관리자를 설정한 뒤에 끌 수 있어요")
+                    else if (a.requireAdmin()) { c.setTsaEnabled(false); a.render() }
+                }, WRAP, WRAP)
             }, top = 10)
+            add(a.text(if (c.admin.configured) "켜기·끄기는 관리자 PIN 인증 뒤에만 바꿀 수 있어요." else "관리자를 설정하기 전에는 켜짐으로 고정돼요.", 13f, C.DIM), top = 6)
 
         }, top = 16)
 

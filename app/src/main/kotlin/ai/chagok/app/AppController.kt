@@ -232,7 +232,8 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
     val tsaEnabled: Boolean get() = db.setting(KEY_TSA, "on") != "off"
 
     fun setTsaEnabled(on: Boolean) {
-        if (dataSuspended) return
+        // 관리자 PIN 인증 뒤에만 바꾼다. 관리자를 설정하지 않은 차량은 기본 켜짐을 유지한다
+        if (dataSuspended || !canManage) return
         db.setSetting(KEY_TSA, if (on) "on" else "off")
         if (on) stampPending() else notifyChanged()
     }
