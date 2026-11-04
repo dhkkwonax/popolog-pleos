@@ -11,8 +11,9 @@ android {
         applicationId = providers.gradleProperty("previewApplicationId").getOrElse("ai.chagok.app")
         minSdk = 29
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.0-demo"
+        versionCode = 2
+        // 앱 안 표기는 모드 접미사를 붙여 0.4.0-demo / 0.4.0-real 이 된다
+        versionName = "0.4.0"
     }
 
     // 빌드 옵션 = 모드.
@@ -22,6 +23,7 @@ android {
     productFlavors {
         create("demo") {
             dimension = "mode"
+            versionNameSuffix = "-demo"
             buildConfigField("boolean", "DEMO", "true")
         }
         create("real") {

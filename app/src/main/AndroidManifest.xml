@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    android:versionCode="1"
-    android:versionName="0.1.0-demo">
+    android:versionCode="2"
+    android:versionName="0.4.0">
 
 
     <!-- Pleos Vehicle SDK: 주행거리(Odometer), 연료·배터리(Fuel/EvBattery), 차량정보(CarInfo), 브레이크 -->
