@@ -117,9 +117,16 @@ class BackupKeys(context: Context) {
 
     val hasPin: Boolean get() = prefs.contains("pin_kek")
 
+    /** PIN·복구 코드를 바꾼 뒤 새 세대가 기록되기 전까지 true. 이 동안에는 이전 키 세대를 이전 세대로 남기지 않는다 */
+    val rotated: Boolean get() = prefs.getBoolean("rotated", false)
+
+    @Synchronized fun markRekeyed() { prefs.edit().putBoolean("rotated", false).commit() }
+
     /** PIN을 새로 정했을 때. 복구 코드도 새로 발급되었으면 함께 넘긴다 */
     @Synchronized fun install(pin: String, recovery: String?) {
-        val e = prefs.edit().clear()
+        // 이미 키가 있던 설치에서 PIN을 바꾼 경우만 이전 키 세대를 정리 대상으로 표시한다(재설치 직후에는 옛 백업을 지우지 않는다)
+        val replaced = hasPin
+        val e = prefs.edit().clear().putBoolean("rotated", replaced)
         put(e, "pin", pin)
         if (recovery != null) put(e, "recovery", normalizeRecovery(recovery))
         check(e.commit()) { "백업 키 저장 실패" }

@@ -99,7 +99,7 @@ private fun MainActivity.showRecoveryCode(code: String) {
     val body = vbox {
         setPadding(dp(24), dp(8), dp(24), 0)
         add(text("복구 코드는 지금 한 번만 표시됩니다", 18f, bold = true))
-        add(text("차량 밖의 안전한 곳에 적어 두세요. PIN과 복구 코드를 모두 잃으면 기록을 유지한 채 잠금을 풀 수 없습니다.", 16f, C.SUB), top = 12)
+        add(text("차량 밖의 안전한 곳에 적어 두세요. PIN과 복구 코드를 모두 잃으면 기록을 유지한 채 잠금을 풀 수 없고, 앱을 지운 뒤 암호화된 백업도 복구할 수 없습니다.", 16f, C.SUB), top = 12)
         add(text(code.chunked(20).joinToString("\n"), 22f, bold = true, tabular = true), top = 20)
         add(text("관리자 인계·PIN 복구 시 기존 코드는 폐기됩니다.", 14f, C.SUB), top = 16)
     }

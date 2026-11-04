@@ -175,16 +175,21 @@ class RecordBackup(private val context: Context, private val c: AppController, p
                 val keys = c.admin.backupKeys
                 val bytes = BackupCrypto.seal(plainBytes, keys)
                 val previousDocs = documents(tree)
-                // 이전 세대로는 현재 PIN·복구 코드 키로 만든 암호화 백업만 남긴다. 평문·이전 키 세대는 새 세대 기록 뒤 정리된다
-                val previous = previousDocs.filter { it.name.matches(BACKUP_NAME) }
+                // 남길 이전 세대: 암호화된 정상 백업만. (1) 현재 키로 만든 최신 세대, (2) PIN을 바꾼 직후가 아니면 키가 다른 옛 백업(재설치 전 백업) 중 최신 하나.
+                // 평문 백업과 PIN을 바꾸기 전 키 세대는 새 세대 기록 뒤 정리된다
+                val valid = previousDocs.filter { it.name.matches(BACKUP_NAME) }
                     .sortedByDescending { it.modified }
-                    .firstOrNull { f -> previousDocs.firstOrNull { it.name == "${f.name}.done" }?.let { marker ->
+                    .mapNotNull { f -> previousDocs.firstOrNull { it.name == "${f.name}.done" }?.let { marker ->
                         runCatching {
                             val b = read(f.uri)
-                            RecordSnapshot.digest(b) == String(read(marker.uri), Charsets.UTF_8) &&
-                                BackupCrypto.isEnvelope(b) && BackupCrypto.sameKeys(BackupCrypto.header(b), keys)
-                        }.getOrDefault(false)
-                    } == true }
+                            if (RecordSnapshot.digest(b) == String(read(marker.uri), Charsets.UTF_8) && BackupCrypto.isEnvelope(b))
+                                f.name to BackupCrypto.sameKeys(BackupCrypto.header(b), keys) else null
+                        }.getOrNull()
+                    } }
+                val keep = if (!keepPrevious) emptySet() else buildSet {
+                    valid.firstOrNull { it.second }?.let { add(it.first) }
+                    if (!keys.rotated) valid.firstOrNull { !it.second }?.let { add(it.first) }
+                }
                 val name = "popolog-backup-${UUID.randomUUID()}.json"
                 val uri = create(tree, name, bytes)
                 val written = read(uri)
@@ -194,11 +199,12 @@ class RecordBackup(private val context: Context, private val c: AppController, p
                 val marker = RecordSnapshot.digest(bytes).toByteArray(Charsets.UTF_8)
                 val done = create(tree, "$name.done", marker)
                 require(read(done).contentEquals(marker)) { "완료 표시 검증 실패" }
-                // Keep the new generation and the previous valid one; never prune before the commit marker.
+                // Keep the new generation and the retained ones; never prune before the commit marker.
                 previousDocs.filter { it.name.removeSuffix(".done").matches(BACKUP_NAME) &&
-                    it.name.removeSuffix(".done") != previous?.name.takeIf { keepPrevious } }.forEach { old ->
+                    it.name.removeSuffix(".done") !in keep }.forEach { old ->
                     if (!deleteDoc(old.uri)) error("이전 백업 정리 실패")
                 }
+                keys.markRekeyed()
                 // 데모 시험 확인용: 백업 폴더에 남은 파일 목록
                 if (ai.chagok.app.BuildConfig.DEMO) android.util.Log.i("Popolog", "backup folder: ${documents(tree).map { it.name.takeLast(14) }.sorted()}")
     }
@@ -309,8 +315,36 @@ class RecordBackup(private val context: Context, private val c: AppController, p
         }
     }
 
+    /**
+     * 복구하기 전에 백업을 먼저 열어 본다(기록 쓰기를 멈추거나 관리자 잠금이 걸리기 전). 이 설치의 키로 열리지 않으면
+     * [onSecretNeeded]로 백업을 만들 때의 PIN·복구 코드를 다시 묻는다. 열리면 [secret] 없이도 바로 복구한다
+     */
     fun restore(document: Document, secret: String? = null, onSecretNeeded: () -> Unit = {}) {
-        require(c.canManage) { "관리자 잠금을 해제한 뒤 다시 복구하세요" }
+        if (!c.canManage) { update("관리자 잠금을 해제한 뒤 다시 복구하세요"); return }
+        if (busy || operationRunning || saleState.isNotEmpty() || c.isDriving) return
+        busy = true
+        update()
+        io.execute {
+            val opened = runCatching {
+                val raw = read(document.uri)
+                if (BackupCrypto.isEnvelope(raw)) BackupCrypto.open(raw, c.admin.backupKeys, secret) else raw
+            }
+            main.post {
+                busy = false
+                val error = opened.exceptionOrNull()
+                when {
+                    closed -> {}
+                    error is SecretRequired -> { update(); onSecretNeeded() }
+                    error is WrongSecret -> { update("복구 실패: ${error.message}"); onSecretNeeded() }
+                    error != null -> update("복구 실패: ${safeError(error)}")
+                    !c.canManage -> update("관리자 잠금을 해제한 뒤 다시 복구하세요")
+                    else -> applyRestore(opened.getOrThrow())
+                }
+            }
+        }
+    }
+
+    private fun applyRestore(bytes: ByteArray) {
         if (busy || operationRunning || saleState.isNotEmpty() || c.isDriving) return
         require(prefs.edit().putBoolean("restoring", true).commit()) { "복구 상태 저장 실패" }
         operationRunning = true
@@ -319,8 +353,6 @@ class RecordBackup(private val context: Context, private val c: AppController, p
         update()
         io.execute {
             val result = runCatching {
-                val raw = read(document.uri)
-                val bytes = if (BackupCrypto.isEnvelope(raw)) BackupCrypto.open(raw, c.admin.backupKeys, secret) else raw
                 val decoded = RecordSnapshot.decode(bytes)
                 val manifest = decoded.getJSONArray("files")
                 val folders = decoded.getJSONArray("folders")
@@ -351,8 +383,7 @@ class RecordBackup(private val context: Context, private val c: AppController, p
                     prefs.edit().putBoolean("restoring", false).commit()
                     c.resumeRecords()
                 }
-                if (result.exceptionOrNull() is SecretRequired) { update(); onSecretNeeded() }
-                else update(if (result.isSuccess) "복구 완료" else "복구 실패: ${safeError(result.exceptionOrNull())}")
+                update(if (result.isSuccess) "복구 완료" else "복구 실패: ${safeError(result.exceptionOrNull())}")
             }
         }
     }
@@ -577,7 +608,9 @@ class RecordBackup(private val context: Context, private val c: AppController, p
         // Single queue across Activity instances: an old backup cannot race a new restore or sale deletion.
         private val io = Executors.newSingleThreadExecutor()
         /** 데모 테스트 경로: 현재 사용자의 공용 저장소 아래 고정 폴더 (앱을 지워도 남는다) */
-        fun demoDir() = java.io.File(android.os.Environment.getExternalStorageDirectory(), "Popolog-demo-backup")
+        fun demoDir() = java.io.File(android.os.Environment.getExternalStorageDirectory(),
+            // 시험용 별도 패키지는 다른 설치의 데모 백업을 건드리지 않도록 폴더를 나눈다
+            if (ai.chagok.app.BuildConfig.APPLICATION_ID == "ai.chagok.app") "Popolog-demo-backup" else "Popolog-demo-backup-${ai.chagok.app.BuildConfig.APPLICATION_ID}")
         @Volatile private var operationRunning = false
         private val BACKUP_NAME = Regex("popolog-backup-[0-9a-f-]{36}\\.json")
         private val EXPORT_NAME = Regex("(?:운행기록부|차량비용|검증파일)_\\d{4}_[^/]+\\.(?:pdf|csv|json)")
