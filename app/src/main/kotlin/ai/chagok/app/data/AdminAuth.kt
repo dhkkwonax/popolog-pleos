@@ -16,6 +16,7 @@ import javax.crypto.spec.PBEKeySpec
 /** Installation credentials never enter the record DB or its snapshots. */
 class AdminAuth(context: Context) {
     private val prefs = context.getSharedPreferences("local_admin", Context.MODE_PRIVATE)
+    val backupKeys = BackupKeys(context)
     private val random = SecureRandom()
     @Volatile var unlocked = false
         private set
@@ -37,6 +38,8 @@ class AdminAuth(context: Context) {
         if (!verify(pin, "pin")) { failed(); return false }
         check(prefs.edit().putInt("failures", 0).putLong("until", 0).commit()) { "인증 상태 저장 실패" }
         verifiedGeneration = generation
+        // 업데이트 전에 설정된 관리자는 이때 처음 백업 키를 갖는다
+        runCatching { backupKeys.ensurePin(pin) }
         return true
     }
 
@@ -73,6 +76,7 @@ class AdminAuth(context: Context) {
 
     @Synchronized fun clearAfterSale() {
         lock()
+        backupKeys.clear()
         check(prefs.edit().clear().commit()) { "관리자 정보 삭제 실패" }
         KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.deleteEntry(KEY_ALIAS)
     }
@@ -85,6 +89,7 @@ class AdminAuth(context: Context) {
         val recoveryHash = digest(recovery, salt)
         check(prefs.edit().clear().putString("salt", encode(salt))
             .putString("pin", encode(pinHash)).putString("recovery", encode(recoveryHash)).commit()) { "관리자 정보 저장 실패" }
+        backupKeys.install(pin, recovery)
         unlocked = false
         verifiedAt = 0
         verifiedGeneration = null

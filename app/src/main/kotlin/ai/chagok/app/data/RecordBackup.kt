@@ -106,7 +106,7 @@ class RecordBackup(private val context: Context, private val c: AppController, p
         } ?: error("폴더를 읽을 수 없습니다. 다시 접근을 허용하세요")
     }
     private fun read(uri: Uri): ByteArray = (resolver.openInputStream(uri) ?: error("파일을 열 수 없습니다")).use {
-        val bytes = it.readBytesLimited(RecordSnapshot.MAX_BYTES)
+        val bytes = it.readBytesLimited(RecordSnapshot.MAX_BYTES / 3 * 4 + 65536)
         bytes
     }
     private fun create(tree: Uri, name: String, bytes: ByteArray): Uri {
@@ -171,17 +171,26 @@ class RecordBackup(private val context: Context, private val c: AppController, p
         }
     }
 
-    private fun writeGeneration(tree: Uri, bytes: ByteArray, keepPrevious: Boolean = true) {
+    private fun writeGeneration(tree: Uri, plainBytes: ByteArray, keepPrevious: Boolean = true) {
+                val keys = c.admin.backupKeys
+                val bytes = BackupCrypto.seal(plainBytes, keys)
                 val previousDocs = documents(tree)
+                // 이전 세대로는 현재 PIN·복구 코드 키로 만든 암호화 백업만 남긴다. 평문·이전 키 세대는 새 세대 기록 뒤 정리된다
                 val previous = previousDocs.filter { it.name.matches(BACKUP_NAME) }
                     .sortedByDescending { it.modified }
                     .firstOrNull { f -> previousDocs.firstOrNull { it.name == "${f.name}.done" }?.let { marker ->
-                        runCatching { RecordSnapshot.digest(read(f.uri)) == String(read(marker.uri), Charsets.UTF_8) }.getOrDefault(false)
+                        runCatching {
+                            val b = read(f.uri)
+                            RecordSnapshot.digest(b) == String(read(marker.uri), Charsets.UTF_8) &&
+                                BackupCrypto.isEnvelope(b) && BackupCrypto.sameKeys(BackupCrypto.header(b), keys)
+                        }.getOrDefault(false)
                     } == true }
                 val name = "popolog-backup-${UUID.randomUUID()}.json"
                 val uri = create(tree, name, bytes)
-                require(read(uri).contentEquals(bytes)) { "백업 쓰기 검증 실패" }
-                RecordSnapshot.decode(read(uri))
+                val written = read(uri)
+                require(written.contentEquals(bytes)) { "백업 쓰기 검증 실패" }
+                require(BackupCrypto.open(written, keys, null).contentEquals(plainBytes)) { "백업 암호화 검증 실패" }
+                RecordSnapshot.decode(plainBytes)
                 val marker = RecordSnapshot.digest(bytes).toByteArray(Charsets.UTF_8)
                 val done = create(tree, "$name.done", marker)
                 require(read(done).contentEquals(marker)) { "완료 표시 검증 실패" }
@@ -300,7 +309,7 @@ class RecordBackup(private val context: Context, private val c: AppController, p
         }
     }
 
-    fun restore(document: Document) {
+    fun restore(document: Document, secret: String? = null, onSecretNeeded: () -> Unit = {}) {
         require(c.canManage) { "관리자 잠금을 해제한 뒤 다시 복구하세요" }
         if (busy || operationRunning || saleState.isNotEmpty() || c.isDriving) return
         require(prefs.edit().putBoolean("restoring", true).commit()) { "복구 상태 저장 실패" }
@@ -310,7 +319,8 @@ class RecordBackup(private val context: Context, private val c: AppController, p
         update()
         io.execute {
             val result = runCatching {
-                val bytes = read(document.uri)
+                val raw = read(document.uri)
+                val bytes = if (BackupCrypto.isEnvelope(raw)) BackupCrypto.open(raw, c.admin.backupKeys, secret) else raw
                 val decoded = RecordSnapshot.decode(bytes)
                 val manifest = decoded.getJSONArray("files")
                 val folders = decoded.getJSONArray("folders")
@@ -341,7 +351,8 @@ class RecordBackup(private val context: Context, private val c: AppController, p
                     prefs.edit().putBoolean("restoring", false).commit()
                     c.resumeRecords()
                 }
-                update(if (result.isSuccess) "복구 완료" else "복구 실패: ${safeError(result.exceptionOrNull())}")
+                if (result.exceptionOrNull() is SecretRequired) { update(); onSecretNeeded() }
+                else update(if (result.isSuccess) "복구 완료" else "복구 실패: ${safeError(result.exceptionOrNull())}")
             }
         }
     }
@@ -393,7 +404,8 @@ class RecordBackup(private val context: Context, private val c: AppController, p
                     val contents = documents(tree)
                     for (snapshot in contents.filter { it.name.matches(BACKUP_NAME) }) {
                         runCatching {
-                            val manifest = RecordSnapshot.decode(read(snapshot.uri), checkMode = false)
+                            val raw = read(snapshot.uri)
+                            val manifest = if (BackupCrypto.isEnvelope(raw)) BackupCrypto.header(raw) else RecordSnapshot.decode(raw, checkMode = false)
                             val fs = manifest.getJSONArray("files")
                             val folders = manifest.getJSONArray("folders")
                             validateManifest(fs, folders)

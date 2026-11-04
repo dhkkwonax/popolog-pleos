@@ -211,12 +211,27 @@ class MainActivity : Activity() {
                 docs.forEachIndexed { i, doc ->
                     add(button("백업 ${i + 1} 복구", BtnStyle.SECONDARY) {
                         dialog("전체 기록을 교체할까요?", text("현재 기록은 선택한 백업으로 교체됩니다. 병합하지 않습니다. 취소하면 현재 기록을 유지합니다.", 16f, C.SUB), "복구") {
-                            if (controller.isDriving) toast("정차 후 복구하세요") else backup.restore(doc)
+                            if (controller.isDriving) toast("정차 후 복구하세요") else backup.restore(doc) { askBackupSecret(doc) }
                         }
                     }, top = 8)
                 }
             }
             dialog("완료된 백업 · 최신순", ScrollView(this).apply { addView(body) }, null) {}
+        }
+    }
+
+    /** 재설치 등으로 이 설치의 키로 열리지 않는 암호화 백업: 만들 당시의 PIN 또는 복구 코드로 연다 */
+    private fun askBackupSecret(doc: RecordBackup.Document) {
+        val input = editText("백업을 만들 때의 PIN 또는 복구 코드", android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD)
+        val body = vbox {
+            setPadding(dp(24), 0, dp(24), 0)
+            add(text("이 기기의 관리자 키로 열 수 없는 백업입니다. 백업을 만들 때 쓴 관리자 PIN 또는 복구 코드를 입력하세요. 둘 다 잃었다면 이 백업은 복구할 수 없습니다.", 16f, C.SUB))
+            add(input, top = 12)
+        }
+        dialog("백업 암호 확인", body, "복구") {
+            val secret = input.text.toString().trim()
+            if (secret.isEmpty() || controller.isDriving) toast("PIN 또는 복구 코드를 입력하세요")
+            else backup.restore(doc, secret) { askBackupSecret(doc) }
         }
     }
 
