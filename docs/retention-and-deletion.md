@@ -1,6 +1,6 @@
 # 보존·제출 확인·운행 단건 삭제
 
-결정 근거: `popolog-team/PROJECT_PROGRESS.md`(task 1.1, 1.3), `PRIVACY_OPERATING_POLICY.md`(task 1.2). 구현 변경: `openspec/changes/enforce-retention-and-trip-deletion`.
+결정 근거: `popolog-team/PROJECT_PROGRESS.md`(task 1.1, 1.3), `PRIVACY_OPERATING_POLICY.md`(task 1.2). 구현 변경: `popolog-team/openspec/changes/archive/2026-11-04-enforce-retention-and-trip-deletion`.
 
 ## 동작
 

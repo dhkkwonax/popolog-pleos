@@ -274,4 +274,4 @@ B 절의 확인과 증거 확보를 먼저 마친다. 최근 날짜의 기록을
 - 결과를 `popolog-team/PROJECT_PROGRESS.md`와 변경안 `tasks.md`에 반영한다. 실제 확인이 끝난 뒤 최종 검토·Archive를 진행한다.
 - 이후 새로 발견하는 실기기 확인 항목도 이 문서에 ID·환경·절차·기대 결과를 추가해 한곳에서 관리한다.
 
-참고: [백업 형식과 사용 방법](record-backup.md), [Pleos 실행 방법](../HOWTO-pleos.md), [OpenSpec 작업 목록](../../openspec/changes/preserve-records-after-uninstall/tasks.md).
+참고: [백업 형식과 사용 방법](record-backup.md), [Pleos 실행 방법](../HOWTO-pleos.md), [OpenSpec 작업 목록](../../popolog-team/openspec/changes/preserve-records-after-uninstall/tasks.md).
