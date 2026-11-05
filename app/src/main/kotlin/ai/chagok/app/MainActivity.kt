@@ -976,6 +976,7 @@ class MainActivity : Activity() {
             "pleos.car.permission.CAR_MILEAGE",
             "pleos.car.permission.CAR_ENERGY",
             "pleos.car.permission.CAR_INFO",
+            "android.car.permission.CAR_SPEED",
         )
     }
 }
