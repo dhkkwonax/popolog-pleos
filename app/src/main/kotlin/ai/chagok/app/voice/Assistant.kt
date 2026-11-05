@@ -36,6 +36,8 @@ class Assistant(
     /** 지금 물어도 되는지 (정차 중일 때만) */
     private val canAsk: () -> Boolean,
     private val onChanged: () -> Unit,
+    /** 어느 질문 중이든 먼저 가로채는 말 (예: "광고 그만"). true 면 처리됨 */
+    private val intercept: (String) -> Boolean = { false },
 ) {
     private val handler = Handler(Looper.getMainLooper())
     private val queue = ArrayDeque<Prompt>()
@@ -115,6 +117,7 @@ class Assistant(
     }
 
     private fun heard(p: Prompt, said: String, my: Int) {
+        if (intercept(said)) return
         p.match?.invoke(said)?.let { answerChip(it, byVoice = true); return }
         if (p.free != FreeKind.NONE && p.onText(said)) {
             finish()

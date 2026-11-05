@@ -80,6 +80,24 @@ class SettingsScreen(private val a: MainActivity) {
         }, top = 16)
 
         add(a.card {
+            add(a.text("광고 모드", 20f, bold = true))
+            add(a.text("켜면 출발 후 이 앱 화면이 광고 이미지 한 장으로 바뀝니다. 주행 중에는 바뀌지 않고, 차를 세워 3~5초 지나면 기록 화면으로 돌아옵니다. 내비·계기판은 따로 표시됩니다.", 15f, C.SUB), top = 6)
+            add(a.text("선택 사용(기본 꺼짐)입니다. 소리 광고는 하루 2회 이하, 정차 때만 나옵니다. \"광고 그만\"이라고 말하거나 여기서 끄면 바로 멈춥니다. 광고는 운행 기록·장부·세무 리포트에 들어가지 않습니다.", 14f, C.DIM), top = 8)
+            add(a.hbox {
+                add(a.choice("사용", c.adEnabled) {
+                    when {
+                        c.isDriving -> a.toast("정차 후 바꿔 주세요")
+                        c.adConsented -> { c.setAdMode(true); a.render() }
+                        else -> adConsentDialog()
+                    }
+                }, WRAP, WRAP, end = 10)
+                add(a.choice("사용 안 함", !c.adEnabled) {
+                    if (c.isDriving) a.toast("정차 후 바꿔 주세요") else { c.setAdMode(false); a.render() }
+                }, WRAP, WRAP)
+            }, top = 12)
+        }, top = 16)
+
+        add(a.card {
             add(a.text("정비 주기", 20f, bold = true))
             add(a.text("계기판 거리가 주기를 넘으면 차를 세웠을 때 알려 드려요", 15f, C.SUB), top = 6)
             val plan = c.flows.plan()
@@ -196,6 +214,18 @@ class SettingsScreen(private val a: MainActivity) {
     }
 
     /** 이미 등록된 운전자가 본인 확인 뒤 동의한다. 동의 전에는 자동 추정에서 제외된다 */
+    private fun adConsentDialog() {
+        val body = a.vbox {
+            setPadding(a.dp(24), a.dp(8), a.dp(24), 0)
+            add(a.text("광고 모드를 켤까요?", 16f, bold = true))
+            add(a.text("근처 장소를 알리는 광고를 보여 드리려고 현재 위치를 사용합니다. 광고는 \"광고\" 표시와 함께 나오며, 언제든 끌 수 있습니다. 광고 노출은 운행기록·세무 자료에 저장하지 않습니다.", 14f, C.SUB), top = 8)
+        }
+        a.dialog("광고 모드 동의", ScrollView(a).apply { addView(body) }, "동의하고 켜기") {
+            c.setAdMode(true, consent = true)
+            a.render()
+        }
+    }
+
     private fun consentDialog(d: ai.chagok.app.model.Driver) {
         val body = a.vbox {
             setPadding(a.dp(24), a.dp(8), a.dp(24), 0)

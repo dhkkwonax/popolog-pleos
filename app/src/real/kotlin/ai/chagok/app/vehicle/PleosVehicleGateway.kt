@@ -29,6 +29,7 @@ class PleosVehicleGateway(context: Context, powertrain: Powertrain) : VehicleGat
     private val location = FusedLocation(context.applicationContext)
     private val handler = Handler(Looper.getMainLooper())
     private var listener: VehicleGateway.Listener? = null
+    private val speed = CarPropertySpeedSource(context)
 
     /** 설정값으로 시작하되, 차에 없는 속성이면 연료 ↔ 배터리를 한 번 바꿔 잡는다 */
     private var readsBattery = powertrain == Powertrain.EV
@@ -75,6 +76,7 @@ class PleosVehicleGateway(context: Context, powertrain: Powertrain) : VehicleGat
         vehicle.initialize()
         readCarInfo()
         readDriverSeat()
+        speed.start { kmh -> post { this.listener?.onSpeed(kmh) } }
         // FUSED_LOCATION 은 dangerous 권한이라 아직 승인 전이면 SecurityException 이 난다.
         // 위치 없이도 거리·연료 기록은 계속돼야 하므로 삼키고, 승인되면 reconnectGateway 로 다시 붙는다.
         runCatching {
@@ -89,6 +91,7 @@ class PleosVehicleGateway(context: Context, powertrain: Powertrain) : VehicleGat
 
     override fun stop() {
         handler.removeCallbacks(poll)
+        speed.stop()
         runCatching { vehicle.getSeat().unregisterSeatForeAftPosition(driverSeat, seatListener) }
         runCatching { location.unregisterFusedLocationCallback(locationListener) }
         runCatching { location.release() }

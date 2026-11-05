@@ -449,6 +449,24 @@ class MainActivity : Activity() {
         setContentView(root)
     }
 
+    private var adView: View? = null
+    private var adShownHeadline: String? = null
+
+    /** 광고 상태에서는 탐색 레일까지 포함한 전체를 정지 이미지로 덮는다. 아래 일반 화면은 그대로 두어 복귀 후 탭이 유지된다 */
+    private fun renderAd() {
+        val c = controller
+        val want = if (c.adVisible) c.currentAd else null
+        if (want?.headline == adShownHeadline && (want == null) == (adView == null)) return
+        adView?.let { (it.parent as? android.view.ViewGroup)?.removeView(it) }
+        adView = null
+        adShownHeadline = want?.headline
+        want ?: return
+        val v = ai.chagok.app.ui.AdScreen.build(this, want, C.night)
+        adView = v
+        (window.decorView as android.view.ViewGroup).findViewById<android.view.ViewGroup>(android.R.id.content)
+            .addView(v, FrameLayout.LayoutParams(MATCH, MATCH))
+    }
+
     private fun renderOverlay() {
         overlayHost.removeAllViews()
         if (controller.dataSuspended) { overlayHost.visibility = View.GONE; return }
@@ -597,7 +615,7 @@ class MainActivity : Activity() {
         listOf(
             dataSuspended, canManage, admin.configured, tab, trips.size, trips.firstOrNull()?.let { it.id to it.purpose }, expenses.size,
             expenses.count { it.pendingAmount }, expenses.sumOf { it.amountWon }, places.size,
-            askTripId, askExpenseId, monthOffset, powertrain, lastNotice,
+            askTripId, askExpenseId, monthOffset, powertrain, lastNotice, adVisible, adEnabled, if (adVisible) currentAd.headline else null,
             driver?.driver?.id, driver?.method, driverGreeting, drivers,
             assistant.current?.id, assistant.status, assistant.listening, flows.syncReview().size, flows.dueItems().size,
             (gateway as? ai.chagok.app.vehicle.SimulatedVehicle)?.busy,
@@ -612,6 +630,7 @@ class MainActivity : Activity() {
         renderRail()
         updateStatus()
         renderOverlay()
+        renderAd()
         content.removeAllViews()
         val view = if (controller.dataSuspended) backupControls()
         else if ((tab == Tab.LOGBOOK || tab == Tab.TAX || tab == Tab.LEDGER) && !controller.canManage) adminGate()

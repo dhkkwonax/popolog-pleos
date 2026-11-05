@@ -78,6 +78,7 @@ class SimulatedVehicle(
         listener.onEnergyLevel(level)
         listener.onParkingBrake(true)
         seatPosition?.let { listener.onDriverSeat(it) }
+        listener.onSpeed(0.0)
         handler.removeCallbacks(tick)
         handler.post(tick)
     }
@@ -124,7 +125,8 @@ class SimulatedVehicle(
     private fun step() {
         val l = listener ?: return
         route?.let { r ->
-            if (android.os.SystemClock.uptimeMillis() < holdUntil) return
+            if (android.os.SystemClock.uptimeMillis() < holdUntil) { l.onSpeed(0.0); return }
+            l.onSpeed(SIM_SPEED_KMH)
             // 시속 60km 가정: 틱(0.25초) = 가상 30초 = 0.5km
             val stepKm = minOf(KM_PER_TICK, r.roadKm - r.progressKm)
             r.progressKm += stepKm
@@ -141,10 +143,12 @@ class SimulatedVehicle(
                 route = null
                 parked = true
                 l.onParkingBrake(true)
+                l.onSpeed(0.0)
                 r.onArrive()
             }
             return
         }
+        l.onSpeed(0.0)
         energyTarget?.let { target ->
             level = minOf(target, level + REFILL_PER_TICK)
             clockOffset += 20_000L
@@ -168,6 +172,7 @@ class SimulatedVehicle(
         /** 빨리 감기 배율 (1 = 실시간 시연). 자동 촬영이 실행 인텐트의 sim_speed 로 정한다 */
         var timeScale = 1
 
+        private const val SIM_SPEED_KMH = 60.0
         private const val TICK_MS = 250L
         private const val VIRTUAL_MS_PER_TICK = 30_000L
         private const val KM_PER_TICK = 0.5

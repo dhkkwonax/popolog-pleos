@@ -1,5 +1,9 @@
 package ai.chagok.app
 
+import ai.chagok.app.core.AdCatalog
+import ai.chagok.app.core.AdCommand
+import ai.chagok.app.core.AdModePolicy
+import ai.chagok.app.core.AdVoiceBudget
 import ai.chagok.app.core.DriverIdentifier
 import ai.chagok.app.core.EnergyEvent
 import ai.chagok.app.core.EnergyEventDetector
@@ -180,7 +184,7 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
     var typedInputHandler: ((String, (String?) -> Unit) -> Unit)? = null
 
     /** 앱이 먼저 묻는 질문 진행기. 정차 중에만 묻는다 */
-    val assistant = Assistant({ voice }, { isStopped() }, { notifyChanged() })
+    val assistant = Assistant({ voice }, { isStopped() }, { notifyChanged() }, { handleAdCommand(it) })
     val flows = Flows(this)
 
     /** 비용 내역을 가져오는 곳. 실제 경로가 확인되면 어댑터만 바꿔 끼운다. 시연 모드는 샘플, 실제 모드는 아직 없음 */
@@ -190,6 +194,69 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
     private var lastNaviArrival = 0L
 
     private fun isStopped() = ::recorder.isInitialized && !recorder.isDriving
+
+    // ---- 광고 모드 (운행 기록·해시체인·세무와 분리: 설정 표의 ad_ 키만 쓰고 record() 는 부르지 않는다) ----
+    private val adPolicy = AdModePolicy(AdCatalog.all.size).also { it.setEnabled(false) }
+    val adEnabled: Boolean get() = db.setting(KEY_AD) == "on"
+    val adConsented: Boolean get() = db.setting(KEY_AD_CONSENT).isNotEmpty()
+
+    /** 지금 전체 화면 광고를 보여 줄 때 */
+    val adVisible: Boolean get() = !dataSuspended && adEnabled && adPolicy.screen == AdModePolicy.Screen.AD
+    val currentAd get() = AdCatalog.all[adPolicy.creative]
+    private var adShown = false
+    private fun uptime() = android.os.SystemClock.elapsedRealtime()
+
+    /** 켜기는 정차 중에만, 처음에는 [consent] 로 동의를 받은 뒤에만 된다 */
+    fun setAdMode(on: Boolean, consent: Boolean = adConsented): Boolean {
+        if (dataSuspended || adVisible || isDriving) return false
+        if (on && !consent) return false
+        if (on && !adConsented) db.setSetting(KEY_AD_CONSENT, gateway.now().toString())
+        db.setSetting(KEY_AD, if (on) "on" else "off")
+        adPolicy.setEnabled(on)
+        adShown = false
+        notifyChanged()
+        return true
+    }
+
+    private fun syncAd() {
+        val now = uptime()
+        adPolicy.tick(now)
+        val visible = adVisible
+        if (visible != adShown) { adShown = visible; notifyChanged() }
+    }
+
+    /** 음성 "광고 그만". 해제 즉시 일반 화면 */
+    fun handleAdCommand(said: String): Boolean {
+        if (!AdCommand.isStop(said)) return false
+        db.setSetting(KEY_AD, "off")
+        adPolicy.setEnabled(false)
+        adShown = false
+        speak("광고 모드를 껐어요.")
+        notifyChanged()
+        return true
+    }
+
+    /** 정차 중이고 오늘 2회 미만일 때만 소리 광고를 한 번 묻는다 */
+    private fun offerSoundAd() {
+        if (dataSuspended || !adEnabled || adVisible || isDriving || !::voice.isInitialized) return
+        val today = Integrity.dayOf(gateway.now())
+        if (!AdVoiceBudget.parse(db.setting(KEY_AD_VOICE), today).canOffer) return
+        db.setSetting(KEY_AD_VOICE, AdVoiceBudget.afterOffer(db.setting(KEY_AD_VOICE), today))
+        voice.speak(currentAd.voiceText) {
+            voice.listen(currentAd.voiceText) { said ->
+                if (said == null) return@listen
+                if (handleAdCommand(said)) return@listen
+                lastNotice = if (said.contains("안내")) "광고 안내 요청 · 경로 연동은 아직 없음" else "광고 건너뜀"
+                notifyChanged()
+            }
+        }
+    }
+
+    override fun onSpeed(kmh: Double?) {
+        if (dataSuspended) return
+        adPolicy.onSpeed(kmh, uptime())
+        syncAd()
+    }
 
     fun notifyUi() = notifyChanged()
 
@@ -201,6 +268,7 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
             val now = gateway.now()
             recorder.tick(now)
             energy.tick(now)
+            syncAd()
             // 날짜가 바뀌면 지난 날을 마감한다
             val day = Integrity.dayOf(now)
             if (day != tickDay) {
@@ -259,6 +327,7 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
             DemoSeed.seed(db, powertrain)
             db.setSetting(KEY_SEEDED, "1")
         }
+        adPolicy.setEnabled(adEnabled)
         ensureLedger()
         // 앱이 꺼져 있던 동안 지난 날도 마감한다
         anchorPastDays(System.currentTimeMillis())
@@ -814,7 +883,7 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
         record(Integrity.Kind.EXPENSE_FIX, id, Integrity.canonical(fixed))
         if (askExpenseId == id) askExpenseId = null
         lastNotice = "${e.category.label} ${won(amount)} 장부 기록"
-        speak("${amountSpoken(amount)} 기록했어요.")
+        if (::voice.isInitialized) voice.speak("${amountSpoken(amount)} 기록했어요.") { offerSoundAd() }
         reload()
         notifyChanged()
     }
@@ -979,6 +1048,11 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
         const val KEY_PRIVACY_CONTACT = "privacy_contact"
         /** 음성 사용: on(기본) · off */
         const val KEY_VOICE = "voice"
+
+        /** 광고 모드: on · off(기본). 동의 시각, 소리 광고 "날짜|횟수". 운행·세무 데이터와 섞지 않는다 */
+        const val KEY_AD = "ad_mode"
+        const val KEY_AD_CONSENT = "ad_consent"
+        const val KEY_AD_VOICE = "ad_voice"
 
         /** 이만큼 넘게 늘었을 때만 보정 운행으로 남긴다 (계기판 반올림 오차 제외) */
         const val GAP_MIN_KM = 0.2
