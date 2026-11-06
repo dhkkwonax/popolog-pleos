@@ -203,10 +203,7 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
     /** 지금 전체 화면 광고를 보여 줄 때 */
     val adVisible: Boolean get() = !dataSuspended && adEnabled && adPolicy.screen == AdModePolicy.Screen.AD
     val currentAd get() = AdCatalog.all[adPolicy.creative]
-    /** 정차가 충분히 이어져 "기록 화면으로" 버튼을 보여 줄 때 */
-    val adCanDismiss: Boolean get() = adVisible && adPolicy.canDismiss
     private var adShown = false
-    private var adDismissShown = false
     private fun uptime() = android.os.SystemClock.elapsedRealtime()
 
     /** 켜기는 정차 중에만, 처음에는 [consent] 로 동의를 받은 뒤에만 된다 */
@@ -217,7 +214,6 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
         db.setSetting(KEY_AD, if (on) "on" else "off")
         adPolicy.setEnabled(on)
         adShown = false
-        adDismissShown = false
         notifyChanged()
         return true
     }
@@ -226,15 +222,10 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
         val now = uptime()
         adPolicy.tick(now)
         val visible = adVisible
-        val dismissable = adCanDismiss
-        if (visible != adShown || dismissable != adDismissShown) {
-            adShown = visible
-            adDismissShown = dismissable
-            notifyChanged()
-        }
+        if (visible != adShown) { adShown = visible; notifyChanged() }
     }
 
-    /** 광고 화면의 "기록 화면으로" 버튼. 정차가 이어진 뒤에만 동작한다 */
+    /** 광고 화면의 "앱 화면으로" 버튼. 정차 여부와 상관없이 눌러서 돌아갈 수 있다 */
     fun dismissAd() {
         if (dataSuspended || !adPolicy.dismiss()) return
         syncAd()
@@ -246,7 +237,6 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
         db.setSetting(KEY_AD, "off")
         adPolicy.setEnabled(false)
         adShown = false
-        adDismissShown = false
         speak("광고 모드를 껐어요.")
         notifyChanged()
         return true

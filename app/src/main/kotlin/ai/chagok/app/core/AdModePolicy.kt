@@ -5,8 +5,9 @@ package ai.chagok.app.core
  * 광고는 운행 기록·해시체인·세무 산출물과 분리되어 있어 여기서는 어떤 기록도 만들지 않는다.
  *
  * - NORMAL → AD: 광고 모드가 켜져 있고 차속 > 0 이 확인되면 즉시 한 번
- * - AD → NORMAL: 자동으로 돌아가지 않는다. 차속 0 이 [STOP_HOLD_MS] 연속되어 [canDismiss] 가 된 뒤
- *   운전자가 버튼으로 [dismiss] 할 때만 복귀하고, 이때 다음 광고 이미지로 바꾼다
+ * - AD → NORMAL: 자동으로 돌아가지 않는다. 운전자가 화면의 버튼으로 [dismiss] 할 때만 복귀하며
+ *   (정차 여부와 무관), 이때 다음 광고 이미지로 바꾼다. 같은 주행 중에는 광고를 다시 띄우지 않고
+ *   차속 0 이 한 번 확인된 뒤 다시 출발할 때부터 띄운다
  * - 차속을 모르거나 [STALE_MS] 넘게 갱신이 없으면 광고를 띄우지 않는다 (안전 측)
  */
 class AdModePolicy(private val creativeCount: Int) {
@@ -22,15 +23,13 @@ class AdModePolicy(private val creativeCount: Int) {
     private var enabled = false
     private var speedKmh: Double? = null
     private var speedAt = 0L
-    private var stoppedSince = -1L
 
-    /** 정차가 [STOP_HOLD_MS] 이상 이어져 "기록 화면으로" 버튼을 보여 줄 때 */
-    var canDismiss = false
-        private set
+    /** 운전자가 버튼으로 돌아간 뒤, 정차를 한 번 거칠 때까지 광고를 띄우지 않는다 */
+    private var dismissed = false
 
     fun setEnabled(on: Boolean) {
         enabled = on
-        if (!on) toNormal()
+        if (!on) { toNormal(); dismissed = false }
     }
 
     /** [kmh] 가 null 이면 측정 불가 */
@@ -40,11 +39,12 @@ class AdModePolicy(private val creativeCount: Int) {
         evaluate(now)
     }
 
-    /** 버튼으로 기록 화면에 돌아간다. 정차 시간이 차지 않았으면 무시한다 */
+    /** 버튼으로 앱 화면에 돌아간다. 다음 광고 이미지를 준비하고, 이번 주행 중에는 다시 띄우지 않는다 */
     fun dismiss(): Boolean {
-        if (screen != Screen.AD || !canDismiss) return false
+        if (screen != Screen.AD) return false
         toNormal()
         advance()
+        dismissed = true
         return true
     }
 
@@ -56,21 +56,12 @@ class AdModePolicy(private val creativeCount: Int) {
         val v = speedKmh
         if (v == null || now - speedAt > STALE_MS) { toNormal(); return }
         if (v > 0.0) {
-            stoppedSince = -1L
-            canDismiss = false
-            screen = Screen.AD
-            return
-        }
-        if (screen == Screen.AD) {
-            if (stoppedSince < 0) stoppedSince = now
-            canDismiss = now - stoppedSince >= STOP_HOLD_MS
-        } else stoppedSince = -1L
+            if (!dismissed) screen = Screen.AD
+        } else dismissed = false
     }
 
     private fun toNormal() {
         screen = Screen.NORMAL
-        stoppedSince = -1L
-        canDismiss = false
     }
 
     private fun advance() {
@@ -78,8 +69,6 @@ class AdModePolicy(private val creativeCount: Int) {
     }
 
     companion object {
-        /** 허용 범위 3~5초의 가운데 */
-        const val STOP_HOLD_MS = 4_000L
         const val STALE_MS = 5_000L
     }
 }
