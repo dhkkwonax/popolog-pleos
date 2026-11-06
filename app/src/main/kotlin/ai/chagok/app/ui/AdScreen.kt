@@ -10,7 +10,7 @@ import android.widget.TextView
 
 /**
  * 주행 중 전체 화면 광고. 정지 이미지 한 장이며 애니메이션·터치 동작이 없다.
- * 우상단 "광고" 라벨은 항상 보인다. 자동으로 돌아가지 않으며, 정차가 이어지면 하단에
+ * 우상단 "광고" 라벨과 좌상단 "이 광고는 Popolog를 통해 제공됩니다" 문구는 항상 보인다. 자동으로 돌아가지 않으며, 정차가 이어지면 하단에
  * "기록 화면으로" 버튼이 나타나고 그 버튼을 눌러야 기록 화면으로 간다.
  */
 object AdScreen {
@@ -36,6 +36,10 @@ object AdScreen {
                 addView(label(ad.sub, 22f, dim).apply { gravity = Gravity.CENTER; setPadding(0, dp(16), 0, 0) })
             }
             addView(center, FrameLayout.LayoutParams(-1, -1).apply { setMargins(dp(48), dp(48), dp(48), dp(48)) })
+            addView(label("이 광고는 Popolog를 통해 제공됩니다", 16f, fg, bold = true).apply {
+                setPadding(dp(14), dp(8), dp(14), dp(8))
+                setBackgroundColor(if (night) Color.parseColor("#33000000") else Color.parseColor("#33FFFFFF"))
+            }, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.START).apply { setMargins(dp(20), dp(20), dp(20), dp(20)) })
             addView(label("광고 · ${ad.sponsor}", 16f, fg, bold = true).apply {
                 setPadding(dp(14), dp(8), dp(14), dp(8))
                 setBackgroundColor(if (night) Color.parseColor("#33000000") else Color.parseColor("#33FFFFFF"))
