@@ -73,28 +73,6 @@ class AdModePolicy(private val creativeCount: Int) {
     }
 }
 
-/** 소리 광고 하루 [DAILY_LIMIT] 회 이하. 날짜가 바뀌면 처음부터 센다 */
-class AdVoiceBudget(private val day: String, private val used: Int) {
-    val remaining: Int get() = (DAILY_LIMIT - used).coerceAtLeast(0)
-    val canOffer: Boolean get() = remaining > 0
-
-    companion object {
-        const val DAILY_LIMIT = 2
-
-        /** 저장된 "날짜|횟수"를 오늘 기준으로 읽는다. 날짜가 다르거나 깨졌으면 0회 */
-        fun parse(stored: String, today: String): AdVoiceBudget {
-            val p = stored.split('|')
-            val n = if (p.size == 2 && p[0] == today) p[1].toIntOrNull()?.coerceAtLeast(0) ?: 0 else 0
-            return AdVoiceBudget(today, n)
-        }
-
-        fun afterOffer(stored: String, today: String): String {
-            val b = parse(stored, today)
-            return "$today|${DAILY_LIMIT - b.remaining + 1}"
-        }
-    }
-}
-
 /** 음성 해제 명령 */
 object AdCommand {
     private val STOP = Regex("광고\\s*(그만|꺼|끄)")

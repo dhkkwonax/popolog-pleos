@@ -14,7 +14,7 @@ class SettingsScreen(private val a: MainActivity) {
     /** 광고 모드를 사용자가 직접 켜고 끌 수 있게 두는 대신, 그렇게 했을 때 생길 수 있는 문제를 알린다 */
     private val AD_RISK_NOTE = "· 주행 중에도 켜고 끌 수 있고 \"앱 화면으로\" 버튼으로 언제든 돌아올 수 있습니다. 다만 운전 중 화면을 만지거나 광고를 보면 주의가 분산되어 위험할 수 있습니다.\n" +
         "· 주행 중 광고 표시와 터치 조작은 차량 플랫폼의 운전 중 조작 제한 정책이나 앱 마켓 심사 기준에 어긋나 배포가 거절될 수 있습니다.\n" +
-        "· 소리 광고는 대화·내비 안내와 겹쳐 주의를 빼앗을 수 있고, 음성 인식이 잘못 반응할 수 있습니다.\n" +
+        "· 소리 광고는 기본 켜짐이고 횟수 제한이 없어, 정차할 때마다 반복되면 번거롭고 대화·내비 안내와 겹쳐 주의를 빼앗을 수 있으며 음성 인식이 잘못 반응할 수 있습니다. 원하지 않으면 소리 광고를 끄세요.\n" +
         "· 광고를 위해 현재 위치를 사용합니다. 위치는 광고 선택에만 쓰고 운행기록·세무 자료에는 저장하지 않습니다.\n" +
         "· 지금 광고는 시연용 예시이며 실제 매장 정보와 다를 수 있습니다."
 
@@ -97,7 +97,7 @@ class SettingsScreen(private val a: MainActivity) {
                 add(a.choice("사용 안 함", !c.adEnabled) { c.setAdMode(false); a.render() }, WRAP, WRAP)
             }, top = 12)
             add(a.text("소리 광고", 16f, bold = true), top = 14)
-            add(a.text("광고를 소리로도 안내합니다. 하루 2회 이하, 정차 때만 나옵니다.", 14f, C.DIM), top = 4)
+            add(a.text("광고 모드를 켜면 광고를 소리로도 안내합니다(기본 켜짐). 횟수 제한은 없고, 정차 때만 나옵니다.", 14f, C.DIM), top = 4)
             add(a.hbox {
                 add(a.choice("사용", c.adSoundEnabled) { c.setAdSound(true); a.render() }, WRAP, WRAP, end = 10)
                 add(a.choice("사용 안 함", !c.adSoundEnabled) { c.setAdSound(false); a.render() }, WRAP, WRAP)

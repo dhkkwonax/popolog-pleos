@@ -3,7 +3,6 @@ package ai.chagok.app
 import ai.chagok.app.core.AdCatalog
 import ai.chagok.app.core.AdCommand
 import ai.chagok.app.core.AdModePolicy
-import ai.chagok.app.core.AdVoiceBudget
 import ai.chagok.app.core.DriverIdentifier
 import ai.chagok.app.core.EnergyEvent
 import ai.chagok.app.core.EnergyEventDetector
@@ -199,8 +198,8 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
     private val adPolicy = AdModePolicy(AdCatalog.all.size).also { it.setEnabled(false) }
     val adEnabled: Boolean get() = db.setting(KEY_AD) == "on"
     val adConsented: Boolean get() = db.setting(KEY_AD_CONSENT).isNotEmpty()
-    /** 소리 광고는 광고 모드와 별개로 사용자가 고른다 (기본 꺼짐) */
-    val adSoundEnabled: Boolean get() = db.setting(KEY_AD_SOUND) == "on"
+    /** 소리 광고는 광고 모드와 별개로 사용자가 고른다 (기본 켜짐, 광고 모드를 켜야 나온다) */
+    val adSoundEnabled: Boolean get() = db.setting(KEY_AD_SOUND) != "off"
 
     /** 지금 전체 화면 광고를 보여 줄 때 */
     val adVisible: Boolean get() = !dataSuspended && adEnabled && adPolicy.screen == AdModePolicy.Screen.AD
@@ -250,12 +249,9 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
         return true
     }
 
-    /** 정차 중이고 오늘 2회 미만일 때만 소리 광고를 한 번 묻는다 */
+    /** 정차 중일 때만 소리 광고를 한 번 묻는다 (횟수 제한 없음) */
     private fun offerSoundAd() {
         if (dataSuspended || !adEnabled || !adSoundEnabled || adVisible || isDriving || !::voice.isInitialized) return
-        val today = Integrity.dayOf(gateway.now())
-        if (!AdVoiceBudget.parse(db.setting(KEY_AD_VOICE), today).canOffer) return
-        db.setSetting(KEY_AD_VOICE, AdVoiceBudget.afterOffer(db.setting(KEY_AD_VOICE), today))
         voice.speak(currentAd.voiceText) {
             voice.listen(currentAd.voiceText) { said ->
                 if (said == null) return@listen
@@ -1066,7 +1062,6 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
         /** 광고 모드: on · off(기본). 동의 시각, 소리 광고 "날짜|횟수". 운행·세무 데이터와 섞지 않는다 */
         const val KEY_AD = "ad_mode"
         const val KEY_AD_CONSENT = "ad_consent"
-        const val KEY_AD_VOICE = "ad_voice"
         const val KEY_AD_SOUND = "ad_sound"
 
         /** 이만큼 넘게 늘었을 때만 보정 운행으로 남긴다 (계기판 반올림 오차 제외) */
