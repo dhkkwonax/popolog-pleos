@@ -196,8 +196,11 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
 
     // ---- 광고 모드 (운행 기록·해시체인·세무와 분리: 설정 표의 ad_ 키만 쓰고 record() 는 부르지 않는다) ----
     private val adPolicy = AdModePolicy(AdCatalog.all.size).also { it.setEnabled(false) }
-    val adEnabled: Boolean get() = db.setting(KEY_AD) == "on"
+    /** 동의하면 기본 켜짐: 동의를 받은 뒤 사용자가 끈("off") 적이 없으면 켜져 있다 */
+    val adEnabled: Boolean get() = adConsented && db.setting(KEY_AD) != "off"
     val adConsented: Boolean get() = db.setting(KEY_AD_CONSENT).isNotEmpty()
+    /** 동의 여부를 아직 한 번도 고르지 않았다(동의도 거절도 안 함) */
+    val adUndecided: Boolean get() = !adConsented && db.setting(KEY_AD).isEmpty()
     /** 소리 광고는 광고 모드와 별개로 사용자가 고른다 (기본 켜짐, 광고 모드를 켜야 나온다) */
     val adSoundEnabled: Boolean get() = db.setting(KEY_AD_SOUND) != "off"
 

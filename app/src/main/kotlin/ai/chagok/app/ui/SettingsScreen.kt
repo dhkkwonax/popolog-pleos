@@ -11,13 +11,6 @@ import android.widget.ScrollView
 class SettingsScreen(private val a: MainActivity) {
     private val c = a.controller
 
-    /** 광고 모드를 사용자가 직접 켜고 끌 수 있게 두는 대신, 그렇게 했을 때 생길 수 있는 문제를 알린다 */
-    private val AD_RISK_NOTE = "· 주행 중에도 켜고 끌 수 있고 \"앱 화면으로\" 버튼으로 언제든 돌아올 수 있습니다. 다만 운전 중 화면을 만지거나 광고를 보면 주의가 분산되어 위험할 수 있습니다.\n" +
-        "· 주행 중 광고 표시와 터치 조작은 차량 플랫폼의 운전 중 조작 제한 정책이나 앱 마켓 심사 기준에 어긋나 배포가 거절될 수 있습니다.\n" +
-        "· 소리 광고는 기본 켜짐이고 횟수 제한이 없어, 정차할 때마다 반복되면 번거롭고 대화·내비 안내와 겹쳐 주의를 빼앗을 수 있으며 음성 인식이 잘못 반응할 수 있습니다. 원하지 않으면 소리 광고를 끄세요.\n" +
-        "· 광고를 위해 현재 위치를 사용합니다. 위치는 광고 선택에만 쓰고 운행기록·세무 자료에는 저장하지 않습니다.\n" +
-        "· 지금 광고는 시연용 예시이며 실제 매장 정보와 다를 수 있습니다."
-
     fun render(): View = a.vbox {
         add(a.adminControls(), top = 16)
         add(a.backupControls(), top = 16)
@@ -92,7 +85,7 @@ class SettingsScreen(private val a: MainActivity) {
             add(a.text("모두 선택 사항(기본 꺼짐)이고, 켜고 끄는 건 주행 중에도 언제든 직접 고를 수 있습니다. \"광고 그만\"이라고 말하거나 여기서 끄면 바로 멈춥니다. 광고는 운행 기록·장부·세무 리포트에 들어가지 않습니다.", 14f, C.DIM), top = 8)
             add(a.hbox {
                 add(a.choice("사용", c.adEnabled) {
-                    if (c.adConsented) { c.setAdMode(true); a.render() } else adConsentDialog()
+                    if (c.adConsented) { c.setAdMode(true); a.render() } else a.showAdConsent()
                 }, WRAP, WRAP, end = 10)
                 add(a.choice("사용 안 함", !c.adEnabled) { c.setAdMode(false); a.render() }, WRAP, WRAP)
             }, top = 12)
@@ -103,7 +96,7 @@ class SettingsScreen(private val a: MainActivity) {
                 add(a.choice("사용 안 함", !c.adSoundEnabled) { c.setAdSound(false); a.render() }, WRAP, WRAP)
             }, top = 8)
             add(a.text("켜기 전에 알아두세요", 15f, bold = true), top = 14)
-            add(a.text(AD_RISK_NOTE, 14f, C.DIM), top = 4)
+            add(a.text(ai.chagok.app.core.AdNotice.RISK, 14f, C.DIM), top = 4)
         }, top = 16)
 
         add(a.card {
@@ -219,21 +212,6 @@ class SettingsScreen(private val a: MainActivity) {
         a.dialog("차량 이용자·운전자 추가", ScrollView(a).apply { addView(body) }, "추가") {
             val n = name.text.toString().trim()
             if (n.isNotEmpty()) c.addDriver(n, dept.text.toString().trim(), agreed)
-        }
-    }
-
-    /** 이미 등록된 운전자가 본인 확인 뒤 동의한다. 동의 전에는 자동 추정에서 제외된다 */
-    private fun adConsentDialog() {
-        val body = a.vbox {
-            setPadding(a.dp(24), a.dp(8), a.dp(24), 0)
-            add(a.text("광고 모드를 켤까요?", 16f, bold = true))
-            add(a.text("근처 장소를 알리는 광고를 보여 드리려고 현재 위치를 사용합니다. 광고는 \"광고\"와 \"Popolog를 통해 제공\" 표시와 함께 나오며, 언제든 끌 수 있습니다. 광고 노출은 운행기록·세무 자료에 저장하지 않습니다.", 14f, C.SUB), top = 8)
-            add(a.text("켜기 전에 알아두세요", 15f, bold = true), top = 12)
-            add(a.text(AD_RISK_NOTE, 14f, C.DIM), top = 4)
-        }
-        a.dialog("광고 모드 동의", ScrollView(a).apply { addView(body) }, "동의하고 켜기") {
-            c.setAdMode(true, consent = true)
-            a.render()
         }
     }
 
