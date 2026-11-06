@@ -11,6 +11,13 @@ import android.widget.ScrollView
 class SettingsScreen(private val a: MainActivity) {
     private val c = a.controller
 
+    /** 광고 모드를 사용자가 직접 켜고 끌 수 있게 두는 대신, 그렇게 했을 때 생길 수 있는 문제를 알린다 */
+    private val AD_RISK_NOTE = "· 주행 중에도 켜고 끌 수 있고 \"앱 화면으로\" 버튼으로 언제든 돌아올 수 있습니다. 다만 운전 중 화면을 만지거나 광고를 보면 주의가 분산되어 위험할 수 있습니다.\n" +
+        "· 주행 중 광고 표시와 터치 조작은 차량 플랫폼의 운전 중 조작 제한 정책이나 앱 마켓 심사 기준에 어긋나 배포가 거절될 수 있습니다.\n" +
+        "· 소리 광고는 대화·내비 안내와 겹쳐 주의를 빼앗을 수 있고, 음성 인식이 잘못 반응할 수 있습니다.\n" +
+        "· 광고를 위해 현재 위치를 사용합니다. 위치는 광고 선택에만 쓰고 운행기록·세무 자료에는 저장하지 않습니다.\n" +
+        "· 지금 광고는 시연용 예시이며 실제 매장 정보와 다를 수 있습니다."
+
     fun render(): View = a.vbox {
         add(a.adminControls(), top = 16)
         add(a.backupControls(), top = 16)
@@ -82,19 +89,21 @@ class SettingsScreen(private val a: MainActivity) {
         add(a.card {
             add(a.text("광고 모드", 20f, bold = true))
             add(a.text("켜면 출발 후 이 앱 화면이 광고 이미지 한 장으로 바뀝니다. 주행 중에는 바뀌지 않고, 광고 화면 아래의 \"앱 화면으로\" 버튼을 누르면 언제든 앱 화면으로 갑니다. 내비·계기판은 따로 표시됩니다.", 15f, C.SUB), top = 6)
-            add(a.text("선택 사용(기본 꺼짐)입니다. 소리 광고는 하루 2회 이하, 정차 때만 나옵니다. \"광고 그만\"이라고 말하거나 여기서 끄면 바로 멈춥니다. 광고는 운행 기록·장부·세무 리포트에 들어가지 않습니다.", 14f, C.DIM), top = 8)
+            add(a.text("모두 선택 사항(기본 꺼짐)이고, 켜고 끄는 건 주행 중에도 언제든 직접 고를 수 있습니다. \"광고 그만\"이라고 말하거나 여기서 끄면 바로 멈춥니다. 광고는 운행 기록·장부·세무 리포트에 들어가지 않습니다.", 14f, C.DIM), top = 8)
             add(a.hbox {
                 add(a.choice("사용", c.adEnabled) {
-                    when {
-                        c.isDriving -> a.toast("정차 후 바꿔 주세요")
-                        c.adConsented -> { c.setAdMode(true); a.render() }
-                        else -> adConsentDialog()
-                    }
+                    if (c.adConsented) { c.setAdMode(true); a.render() } else adConsentDialog()
                 }, WRAP, WRAP, end = 10)
-                add(a.choice("사용 안 함", !c.adEnabled) {
-                    if (c.isDriving) a.toast("정차 후 바꿔 주세요") else { c.setAdMode(false); a.render() }
-                }, WRAP, WRAP)
+                add(a.choice("사용 안 함", !c.adEnabled) { c.setAdMode(false); a.render() }, WRAP, WRAP)
             }, top = 12)
+            add(a.text("소리 광고", 16f, bold = true), top = 14)
+            add(a.text("광고를 소리로도 안내합니다. 하루 2회 이하, 정차 때만 나옵니다.", 14f, C.DIM), top = 4)
+            add(a.hbox {
+                add(a.choice("사용", c.adSoundEnabled) { c.setAdSound(true); a.render() }, WRAP, WRAP, end = 10)
+                add(a.choice("사용 안 함", !c.adSoundEnabled) { c.setAdSound(false); a.render() }, WRAP, WRAP)
+            }, top = 8)
+            add(a.text("켜기 전에 알아두세요", 15f, bold = true), top = 14)
+            add(a.text(AD_RISK_NOTE, 14f, C.DIM), top = 4)
         }, top = 16)
 
         add(a.card {
@@ -218,7 +227,9 @@ class SettingsScreen(private val a: MainActivity) {
         val body = a.vbox {
             setPadding(a.dp(24), a.dp(8), a.dp(24), 0)
             add(a.text("광고 모드를 켤까요?", 16f, bold = true))
-            add(a.text("근처 장소를 알리는 광고를 보여 드리려고 현재 위치를 사용합니다. 광고는 \"광고\" 표시와 함께 나오며, 언제든 끌 수 있습니다. 광고 노출은 운행기록·세무 자료에 저장하지 않습니다.", 14f, C.SUB), top = 8)
+            add(a.text("근처 장소를 알리는 광고를 보여 드리려고 현재 위치를 사용합니다. 광고는 \"광고\"와 \"Popolog를 통해 제공\" 표시와 함께 나오며, 언제든 끌 수 있습니다. 광고 노출은 운행기록·세무 자료에 저장하지 않습니다.", 14f, C.SUB), top = 8)
+            add(a.text("켜기 전에 알아두세요", 15f, bold = true), top = 12)
+            add(a.text(AD_RISK_NOTE, 14f, C.DIM), top = 4)
         }
         a.dialog("광고 모드 동의", ScrollView(a).apply { addView(body) }, "동의하고 켜기") {
             c.setAdMode(true, consent = true)

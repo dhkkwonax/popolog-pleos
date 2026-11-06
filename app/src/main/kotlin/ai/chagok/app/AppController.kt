@@ -199,6 +199,8 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
     private val adPolicy = AdModePolicy(AdCatalog.all.size).also { it.setEnabled(false) }
     val adEnabled: Boolean get() = db.setting(KEY_AD) == "on"
     val adConsented: Boolean get() = db.setting(KEY_AD_CONSENT).isNotEmpty()
+    /** 소리 광고는 광고 모드와 별개로 사용자가 고른다 (기본 꺼짐) */
+    val adSoundEnabled: Boolean get() = db.setting(KEY_AD_SOUND) == "on"
 
     /** 지금 전체 화면 광고를 보여 줄 때 */
     val adVisible: Boolean get() = !dataSuspended && adEnabled && adPolicy.screen == AdModePolicy.Screen.AD
@@ -206,9 +208,9 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
     private var adShown = false
     private fun uptime() = android.os.SystemClock.elapsedRealtime()
 
-    /** 켜기는 정차 중에만, 처음에는 [consent] 로 동의를 받은 뒤에만 된다 */
+    /** 켜고 끄기는 사용자가 언제든 고른다(주행 중 포함). 처음 켤 때만 [consent] 로 동의를 받는다 */
     fun setAdMode(on: Boolean, consent: Boolean = adConsented): Boolean {
-        if (dataSuspended || adVisible || isDriving) return false
+        if (dataSuspended) return false
         if (on && !consent) return false
         if (on && !adConsented) db.setSetting(KEY_AD_CONSENT, gateway.now().toString())
         db.setSetting(KEY_AD, if (on) "on" else "off")
@@ -231,6 +233,12 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
         syncAd()
     }
 
+    fun setAdSound(on: Boolean) {
+        if (dataSuspended) return
+        db.setSetting(KEY_AD_SOUND, if (on) "on" else "off")
+        notifyChanged()
+    }
+
     /** 음성 "광고 그만". 해제 즉시 일반 화면 */
     fun handleAdCommand(said: String): Boolean {
         if (!AdCommand.isStop(said)) return false
@@ -244,7 +252,7 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
 
     /** 정차 중이고 오늘 2회 미만일 때만 소리 광고를 한 번 묻는다 */
     private fun offerSoundAd() {
-        if (dataSuspended || !adEnabled || adVisible || isDriving || !::voice.isInitialized) return
+        if (dataSuspended || !adEnabled || !adSoundEnabled || adVisible || isDriving || !::voice.isInitialized) return
         val today = Integrity.dayOf(gateway.now())
         if (!AdVoiceBudget.parse(db.setting(KEY_AD_VOICE), today).canOffer) return
         db.setSetting(KEY_AD_VOICE, AdVoiceBudget.afterOffer(db.setting(KEY_AD_VOICE), today))
@@ -1059,6 +1067,7 @@ class AppController(private val context: Context) : VehicleGateway.Listener, Tri
         const val KEY_AD = "ad_mode"
         const val KEY_AD_CONSENT = "ad_consent"
         const val KEY_AD_VOICE = "ad_voice"
+        const val KEY_AD_SOUND = "ad_sound"
 
         /** 이만큼 넘게 늘었을 때만 보정 운행으로 남긴다 (계기판 반올림 오차 제외) */
         const val GAP_MIN_KM = 0.2
