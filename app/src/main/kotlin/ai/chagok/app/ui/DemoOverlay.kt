@@ -40,10 +40,15 @@ class DemoOverlay(private val a: MainActivity) {
         return if (expanded) expandedView(sim, onToggle) else handle(onToggle)
     }
 
-    /** 펼친 상태: 접기 버튼(따로, 오른쪽 위) + 아래에 패널 */
+    /** 펼친 상태: 위에 "끌어서 이동" 안내와 접기 버튼(따로), 아래에 패널 */
     private fun expandedView(sim: SimulatedVehicle, onToggle: () -> Unit): View = android.widget.LinearLayout(a).apply {
         orientation = android.widget.LinearLayout.VERTICAL
-        addView(collapseButton(onToggle), android.widget.LinearLayout.LayoutParams(WRAP, WRAP).apply {
+        addView(android.widget.LinearLayout(a).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(dragHint())
+            addView(collapseButton(onToggle), android.widget.LinearLayout.LayoutParams(WRAP, WRAP).apply { marginStart = px(16) })
+        }, android.widget.LinearLayout.LayoutParams(WRAP, WRAP).apply {
             gravity = Gravity.END
             bottomMargin = px(12)
         })
@@ -62,15 +67,29 @@ class DemoOverlay(private val a: MainActivity) {
         setOnClickListener { onToggle() }
     }
 
-    /** 접힌 상태: 반투명 원형 버튼 */
-    private fun handle(onToggle: () -> Unit): View = label("시연", 24f, C.SUB, bold = true).apply {
+    /** 접힌 상태: 강조색 알약 버튼 + 아래 "끌어서 이동" 표시. 눈에 잘 띄게 크고 색이 있다 */
+    private fun handle(onToggle: () -> Unit): View = android.widget.LinearLayout(a).apply {
+        orientation = android.widget.LinearLayout.VERTICAL
+        gravity = Gravity.CENTER_HORIZONTAL
+        addView(android.widget.LinearLayout(a).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(px(24), px(14), px(32), px(14))
+            background = a.pressable(a.rounded(C.ACCENT, 999))
+            elevation = px(8).toFloat()
+            contentDescription = "시연 컨트롤 펼치기"
+            addView(label("⠿", 32f, C.ON_ACCENT, bold = true))
+            addView(label("시연", 30f, C.ON_ACCENT, bold = true).apply { setPadding(px(12), 0, 0, 0) })
+            setOnClickListener { onToggle() }
+        }, android.widget.LinearLayout.LayoutParams(WRAP, px(88)))
+        addView(dragHint(), android.widget.LinearLayout.LayoutParams(WRAP, WRAP).apply { topMargin = px(8) })
+    }
+
+    /** 끌어서 옮길 수 있다는 안내 */
+    private fun dragHint(): View = label("⠿ 끌어서 이동", 18f, C.TEXT, bold = true).apply {
         gravity = Gravity.CENTER
-        minimumWidth = px(88)
-        minimumHeight = px(88)
-        background = a.pressable(a.rounded(PANEL_BG, 999, PANEL_LINE))
-        alpha = 0.75f
-        contentDescription = "시연 컨트롤 펼치기"
-        setOnClickListener { onToggle() }
+        setPadding(px(16), px(6), px(16), px(6))
+        background = a.rounded(PANEL_BG, 999, PANEL_LINE)
     }
 
     /** 펼친 상태: 네 줄(좁은 창에서도 들어가게 줄마다 버튼 넷 이하). 운행·차량 / 기록·검증 / 음성·비용 / 연동·차종 */
