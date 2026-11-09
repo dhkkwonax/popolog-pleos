@@ -80,6 +80,26 @@ class SettingsScreen(private val a: MainActivity) {
         }, top = 16)
 
         add(a.card {
+            add(a.text("광고 모드", 20f, bold = true))
+            add(a.text("켜면 출발 후 이 앱 화면이 광고 이미지 한 장으로 바뀝니다. 주행 중에는 바뀌지 않고, 광고 화면 아래의 \"앱 화면으로\" 버튼을 누르면 언제든 앱 화면으로 갑니다. 내비·계기판은 따로 표시됩니다.", 15f, C.SUB), top = 6)
+            add(a.text("모두 선택 사항(기본 꺼짐)이고, 켜고 끄는 건 주행 중에도 언제든 직접 고를 수 있습니다. \"광고 그만\"이라고 말하거나 여기서 끄면 바로 멈춥니다. 광고는 운행 기록·장부·세무 리포트에 들어가지 않습니다.", 14f, C.DIM), top = 8)
+            add(a.hbox {
+                add(a.choice("사용", c.adEnabled) {
+                    if (c.adConsented) { c.setAdMode(true); a.render() } else a.showAdConsent()
+                }, WRAP, WRAP, end = 10)
+                add(a.choice("사용 안 함", !c.adEnabled) { c.setAdMode(false); a.render() }, WRAP, WRAP)
+            }, top = 12)
+            add(a.text("소리 광고", 16f, bold = true), top = 14)
+            add(a.text("광고 모드를 켜면 광고를 소리로도 안내합니다(기본 켜짐). 횟수 제한은 없고, 정차 때만 나옵니다.", 14f, C.DIM), top = 4)
+            add(a.hbox {
+                add(a.choice("사용", c.adSoundEnabled) { c.setAdSound(true); a.render() }, WRAP, WRAP, end = 10)
+                add(a.choice("사용 안 함", !c.adSoundEnabled) { c.setAdSound(false); a.render() }, WRAP, WRAP)
+            }, top = 8)
+            add(a.text("켜기 전에 알아두세요", 15f, bold = true), top = 14)
+            add(a.text(ai.chagok.app.core.AdNotice.RISK, 14f, C.DIM), top = 4)
+        }, top = 16)
+
+        add(a.card {
             add(a.text("정비 주기", 20f, bold = true))
             add(a.text("계기판 거리가 주기를 넘으면 차를 세웠을 때 알려 드려요", 15f, C.SUB), top = 6)
             val plan = c.flows.plan()
@@ -195,7 +215,6 @@ class SettingsScreen(private val a: MainActivity) {
         }
     }
 
-    /** 이미 등록된 운전자가 본인 확인 뒤 동의한다. 동의 전에는 자동 추정에서 제외된다 */
     private fun consentDialog(d: ai.chagok.app.model.Driver) {
         val body = a.vbox {
             setPadding(a.dp(24), a.dp(8), a.dp(24), 0)

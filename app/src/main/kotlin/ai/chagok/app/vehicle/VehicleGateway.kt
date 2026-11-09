@@ -32,5 +32,8 @@ interface VehicleGateway {
 
         /** 운전석 앞뒤 위치 (Seat.getCurrentSeatForeAftPosition, ROW_1_LEFT). 운전자 판별에 쓴다 */
         fun onDriverSeat(position: Int) = Unit
+
+        /** 차속 km/h (CarPropertyManager PERF_VEHICLE_SPEED). 읽을 수 없으면 null — 광고 모드는 이때 동작하지 않는다 */
+        fun onSpeed(kmh: Double?) = Unit
     }
 }

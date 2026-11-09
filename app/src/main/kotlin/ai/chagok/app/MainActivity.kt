@@ -164,6 +164,8 @@ class MainActivity : Activity() {
         // 실제 동작 모드는 처음 실행할 때 개인정보 처리 안내를 한 번 보여 준다 (설정에서 다시 볼 수 있다)
         if (!controller.dataSuspended && !controller.demo && controller.db.setting(AppController.KEY_PRIVACY_ACK) != "1") {
             window.decorView.post { showPrivacyNotice(firstRun = true) }
+        } else {
+            window.decorView.post { askAdConsentIfUndecided() }
         }
     }
 
@@ -303,6 +305,33 @@ class MainActivity : Activity() {
         if (!controller.dataSuspended) handleGleo(intent)
     }
 
+    /** 광고 모드 동의를 아직 고르지 않았으면 한 번 묻는다. 동의하면 광고 모드와 소리 광고가 켜지고, 거절하면 꺼진 채로 둔다 */
+    fun askAdConsentIfUndecided() {
+        if (!controller.dataSuspended && controller.adUndecided) showAdConsent()
+    }
+
+    /** 광고 모드 동의 안내. "동의하고 켜기"로 동의하면 기본 켜짐, "동의 안 함"이면 꺼짐으로 기록한다 */
+    fun showAdConsent() {
+        val body = vbox {
+            setPadding(dp(24), dp(8), dp(24), 0)
+            add(text("광고 모드를 켤까요?", 16f, bold = true))
+            add(text("근처 현대차·기아 매장 같은 장소를 알리는 광고를 보여 드리려고 현재 위치를 사용합니다. 동의하면 광고 모드와 소리 광고가 기본으로 켜지고, 설정에서 언제든 끌 수 있습니다. 광고는 \"광고\"와 \"Popolog를 통해 제공\" 표시와 함께 나오며, 광고 노출은 운행기록·세무 자료에 저장하지 않습니다.", 14f, C.SUB), top = 8)
+            add(text("켜기 전에 알아두세요", 15f, bold = true), top = 12)
+            add(text(ai.chagok.app.core.AdNotice.RISK, 14f, C.DIM), top = 4)
+        }
+        val scroll = ScrollView(this).apply { addView(body) }
+        scroll.layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, (resources.displayMetrics.heightPixels * 0.6).toInt())
+        var dlg: Dialog? = null
+        dlg = dialog("광고 모드 동의", scroll, "동의하고 켜기", listOf("동의 안 함" to {
+            dlg?.dismiss()
+            controller.setAdMode(false)
+            render()
+        })) {
+            controller.setAdMode(true, consent = true)
+            render()
+        }
+    }
+
     /** 개인정보 처리 안내 (초안). 처음 실행이면 확인 버튼으로 확인 기록을 남긴다 */
     fun showPrivacyNotice(firstRun: Boolean = false) {
         val body = vbox {
@@ -321,11 +350,13 @@ class MainActivity : Activity() {
             controller.db.setSetting(AppController.KEY_PRIVACY_ACK, "1")
             controller.setVoiceEnabled(true)
             dlg?.dismiss()
+            askAdConsentIfUndecided()
             Unit
         }) else emptyList()
         val d = dialog("개인정보 처리 안내", scroll, if (firstRun) (if (controller.voiceUndecided) "확인했어요 (음성 없이)" else "확인했어요") else null, extra) {
             controller.db.setSetting(AppController.KEY_PRIVACY_ACK, "1")
             if (controller.voiceUndecided) controller.setVoiceEnabled(false)
+            if (firstRun) askAdConsentIfUndecided()
         }
         dlg = d
         // 긴 글이 화면 밖으로 나가지 않게 높이를 제한한다
@@ -447,6 +478,24 @@ class MainActivity : Activity() {
             root.add(rail, MATCH, WRAP)
         }
         setContentView(root)
+    }
+
+    private var adView: View? = null
+    private var adShownHeadline: String? = null
+
+    /** 광고 상태에서는 탐색 레일까지 포함한 전체를 정지 이미지로 덮는다. 아래 일반 화면은 그대로 두어 복귀 후 탭이 유지된다 */
+    private fun renderAd() {
+        val c = controller
+        val want = if (c.adVisible) c.currentAd else null
+        if (want?.headline == adShownHeadline && (want == null) == (adView == null)) return
+        adView?.let { (it.parent as? android.view.ViewGroup)?.removeView(it) }
+        adView = null
+        adShownHeadline = want?.headline
+        want ?: return
+        val v = ai.chagok.app.ui.AdScreen.build(this, want, C.night) { c.dismissAd() }
+        adView = v
+        (window.decorView as android.view.ViewGroup).findViewById<android.view.ViewGroup>(android.R.id.content)
+            .addView(v, FrameLayout.LayoutParams(MATCH, MATCH))
     }
 
     private fun renderOverlay() {
@@ -597,7 +646,7 @@ class MainActivity : Activity() {
         listOf(
             dataSuspended, canManage, admin.configured, tab, trips.size, trips.firstOrNull()?.let { it.id to it.purpose }, expenses.size,
             expenses.count { it.pendingAmount }, expenses.sumOf { it.amountWon }, places.size,
-            askTripId, askExpenseId, monthOffset, powertrain, lastNotice,
+            askTripId, askExpenseId, monthOffset, powertrain, lastNotice, adVisible, adEnabled, if (adVisible) currentAd.headline else null,
             driver?.driver?.id, driver?.method, driverGreeting, drivers,
             assistant.current?.id, assistant.status, assistant.listening, flows.syncReview().size, flows.dueItems().size,
             (gateway as? ai.chagok.app.vehicle.SimulatedVehicle)?.busy,
@@ -612,6 +661,7 @@ class MainActivity : Activity() {
         renderRail()
         updateStatus()
         renderOverlay()
+        renderAd()
         content.removeAllViews()
         val view = if (controller.dataSuspended) backupControls()
         else if ((tab == Tab.LOGBOOK || tab == Tab.TAX || tab == Tab.LEDGER) && !controller.canManage) adminGate()
@@ -957,6 +1007,7 @@ class MainActivity : Activity() {
             "pleos.car.permission.CAR_MILEAGE",
             "pleos.car.permission.CAR_ENERGY",
             "pleos.car.permission.CAR_INFO",
+            "android.car.permission.CAR_SPEED",
         )
     }
 }
