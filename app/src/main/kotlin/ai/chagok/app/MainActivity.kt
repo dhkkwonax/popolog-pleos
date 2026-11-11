@@ -738,11 +738,16 @@ class MainActivity : Activity() {
         val input = editText("말한 내용을 입력", InputType.TYPE_CLASS_TEXT)
         val body = vbox {
             setPadding(dp(24), dp(8), dp(24), dp(0))
-            add(text(question, 16f, C.TEXT))
-            add(text("이 화면은 시연용이에요. 차량에서는 마이크로 바로 듣습니다.", 14f, C.SUB), top = 6)
+            // 시연(데모) 빌드에서만 나오는 창이라는 것을 가장 먼저 눈에 띄게 알린다
+            add(text("시연용 화면", 15f, C.ON_AMBER, bold = true).apply {
+                setPadding(dp(14), dp(6), dp(14), dp(6))
+                background = rounded(C.AMBER, 999)
+            }, WRAP, WRAP)
+            add(text("시연(데모)에서만 이 입력창이 나옵니다. 실제 차량에서는 이 창 없이 마이크로 바로 듣습니다.", 14f, C.SUB), top = 8)
+            add(text(question, 16f, C.TEXT), top = 12)
             add(input, top = 14)
         }
-        dialog("🎤 말하기(시연)", body, "확인") { onResult(input.text.toString().ifBlank { null }) }
+        dialog("🎤 말하기 (시연용 입력창)", body, "확인") { onResult(input.text.toString().ifBlank { null }) }
     }
 
     /** 음성 대화가 아닌 곳에서 짧게 듣기가 필요할 때 */
