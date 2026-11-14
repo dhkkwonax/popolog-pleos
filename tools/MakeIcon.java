@@ -7,7 +7,7 @@ import java.io.File;
 /**
  * Popolog 런처 아이콘·로고. 강조색(주간 #2F5FC4) 둥근 사각형에 운행기록 종이 한 장과 출발→도착 경로.
  * (이전의 'P' 는 주차장 표시·Pleos 아이콘과 비슷해 보여 바꿨다)
- * usage: java MakeIcon.java <out.png> [size] [바탕색 #hex] [경로색 #hex] [기록줄색 #hex]
+ * usage: java MakeIcon.java <out.png> [size] [바탕색 #hex] [경로색 #hex] [기록줄색 #hex] [아래 띠 글자]
  */
 public class MakeIcon {
     public static void main(String[] a) throws Exception {
@@ -46,6 +46,17 @@ public class MakeIcon {
         g.setStroke(new BasicStroke((float) (7 * s), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
         g.draw(new Line2D.Double(104 * s, 132 * s, 128 * s, 132 * s));
         g.draw(new Line2D.Double(104 * s, 146 * s, 120 * s, 146 * s));
+        if (a.length > 5 && !a[5].isEmpty()) {
+            // 데모용 표시: 아이콘 아래쪽에 띠를 두르고 글자를 넣는다 (둥근 사각형 밖으로 나가지 않게 자른다)
+            g.setClip(new RoundRectangle2D.Double(0, 0, n, n, n * 0.46, n * 0.46));
+            g.setColor(new Color(0xFFC107));
+            g.fill(new Rectangle2D.Double(0, n * 0.79, n, n * 0.21));
+            g.setColor(new Color(0x1F2430));
+            g.setFont(new Font("Noto Sans CJK KR", Font.BOLD, (int) (n * 0.15)));
+            FontMetrics fm = g.getFontMetrics();
+            g.drawString(a[5], (n - fm.stringWidth(a[5])) / 2f, (float) (n * 0.79 + (n * 0.21 + fm.getAscent() - fm.getDescent()) / 2));
+            g.setClip(null);
+        }
         g.dispose();
         ImageIO.write(img, "png", new File(a[0]));
     }

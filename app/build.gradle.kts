@@ -35,6 +35,13 @@ android {
             buildConfigField("String", "PLEOS_CLIENT_SECRET", "\"${project.findProperty("pleos.clientSecret") ?: ""}\"")
         }
     }
+    // release 빌드: 공모전 제출용. 출시용 키스토어가 아직 없어 debug 키스토어로 서명한다(스토어 배포용이 아니다)
+    buildTypes {
+        release {
+            signingConfig = signingConfigs.getByName("debug")
+            isMinifyEnabled = false
+        }
+    }
     buildFeatures { buildConfig = true }
     // BouncyCastle 세 jar 가 같은 OSGi 매니페스트를 가진다
     packaging { resources.excludes += "META-INF/versions/9/OSGI-INF/MANIFEST.MF" }
